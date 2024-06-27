@@ -36,7 +36,7 @@ def load_from_videos(
     """
     # since video path already contains "videos" (e.g. videos_dir="data/videos", path="videos/episode_0.mp4")
     data_dir = videos_dir.parent
-
+    print(data_dir)
     for key in video_frame_keys:
         if isinstance(item[key], list):
             # load multiple frames at once (expected when delta_timestamps is not None)
@@ -155,6 +155,10 @@ def decode_video_frames_torchvision(
 def encode_video_frames(imgs_dir: Path, video_path: Path, fps: int):
     """More info on ffmpeg arguments tuning on `lerobot/common/datasets/_video_benchmark/README.md`"""
     video_path = Path(video_path)
+    # if the path exists already, delete it
+    if video_path.exists():
+        video_path.unlink()
+
     video_path.parent.mkdir(parents=True, exist_ok=True)
 
     ffmpeg_cmd = (
@@ -164,7 +168,7 @@ def encode_video_frames(imgs_dir: Path, video_path: Path, fps: int):
         f"-i {str(imgs_dir / 'frame_%06d.png')} "
         "-vcodec libx264 "
         "-g 2 "
-        "-pix_fmt yuv444p "
+        "-pix_fmt yuv420p "
         f"{str(video_path)}"
     )
     subprocess.run(ffmpeg_cmd.split(" "), check=True)

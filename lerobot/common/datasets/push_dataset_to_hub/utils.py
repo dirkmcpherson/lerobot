@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy
 import PIL
 import torch
-
+import cv2
 
 def concatenate_episodes(ep_dicts):
     data_dict = {}

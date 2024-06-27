@@ -1,0 +1,14 @@
+# @package _global_
+
+fps: 20
+
+env:
+  name: robosuite
+  task: Square_D0-v0
+  state_dim: 21
+  action_dim: 7
+  image_size: [3, 128, 128]
+  fps: ${fps}
+  episode_length: 250
+  gym:
+    render_mode: rgb_array

@@ -1,0 +1,19 @@
+# @package _global_
+
+fps: 1
+
+env:
+  name: pinpad
+  task: pinpad_five
+  from_pixels: True
+  pixels_only: True
+  image_size: [3, 64, 64]
+  episode_length: 1000
+  fps: ${fps}
+  action_dim: 5
+  state_dim: 1
+  gym:
+    obs_type: image
+    render_mode: rgb_array
+    visualization_width: 64
+    visualization_height: 64

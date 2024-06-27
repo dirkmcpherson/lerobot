@@ -14,10 +14,39 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import importlib
+import numpy as np
+from lerobot.common.envs.pinpad import PinPad
 
 import gymnasium as gym
 from omegaconf import DictConfig
 
+class OneHotAction(gym.Wrapper):
+    def __init__(self, env):
+        assert isinstance(env.action_space, gym.spaces.Discrete)
+        super().__init__(env)
+        self._random = np.random.RandomState()
+        shape = (self.env.action_space.n,)
+        space = gym.spaces.Box(low=0, high=1, shape=shape, dtype=np.float32)
+        space.discrete = True
+        self.action_space = space
+
+    def step(self, action):
+        index = np.argmax(action).astype(int)
+        reference = np.zeros_like(action)
+        reference[index] = 1
+        if not np.allclose(reference, action):
+            raise ValueError(f"Invalid one-hot action:\n{action}")
+        return self.env.step(index)
+
+    def reset(self, *args, **kwargs):
+        return self.env.reset(*args, **kwargs)
+
+    def _sample_action(self):
+        actions = self.env.action_space.n
+        index = self._random.randint(0, actions)
+        reference = np.zeros(actions, dtype=np.float32)
+        reference[index] = 1.0
+        return reference
 
 def make_env(cfg: DictConfig, n_envs: int | None = None) -> gym.vector.VectorEnv:
     """Makes a gym vector environment according to the evaluation config.
@@ -27,29 +56,37 @@ def make_env(cfg: DictConfig, n_envs: int | None = None) -> gym.vector.VectorEnv
     if n_envs is not None and n_envs < 1:
         raise ValueError("`n_envs must be at least 1")
 
-    package_name = f"gym_{cfg.env.name}"
+    if cfg.env.name == "pinpad":
+        # assert config.size == (64, 64), "PinPad only supports 64x64 images " + str(config.size)
+        env = PinPad('five', extra_obs=False, size=(64, 64))
+        # env = gym.vector.SyncVectorEnv([env])
+        env = OneHotAction(env)
+        env.num_envs = 1
+        # env = TimeLimit(env, config.time_limit)
+    else:
+        package_name = f"gym_{cfg.env.name}"
 
-    try:
-        importlib.import_module(package_name)
-    except ModuleNotFoundError as e:
-        print(
-            f"{package_name} is not installed. Please install it with `pip install 'lerobot[{cfg.env.name}]'`"
+        try:
+            importlib.import_module(package_name)
+        except ModuleNotFoundError as e:
+            print(
+                f"{package_name} is not installed. Please install it with `pip install 'lerobot[{cfg.env.name}]'`"
+            )
+            raise e
+
+        gym_handle = f"{package_name}/{cfg.env.task}"
+        gym_kwgs = dict(cfg.env.get("gym", {}))
+
+        if cfg.env.get("episode_length"):
+            gym_kwgs["max_episode_steps"] = cfg.env.episode_length
+
+        # batched version of the env that returns an observation of shape (b, c)
+        env_cls = gym.vector.AsyncVectorEnv if cfg.eval.use_async_envs else gym.vector.SyncVectorEnv
+        env = env_cls(
+            [
+                lambda: gym.make(gym_handle, disable_env_checker=True, **gym_kwgs)
+                for _ in range(n_envs if n_envs is not None else cfg.eval.batch_size)
+            ]
         )
-        raise e
-
-    gym_handle = f"{package_name}/{cfg.env.task}"
-    gym_kwgs = dict(cfg.env.get("gym", {}))
-
-    if cfg.env.get("episode_length"):
-        gym_kwgs["max_episode_steps"] = cfg.env.episode_length
-
-    # batched version of the env that returns an observation of shape (b, c)
-    env_cls = gym.vector.AsyncVectorEnv if cfg.eval.use_async_envs else gym.vector.SyncVectorEnv
-    env = env_cls(
-        [
-            lambda: gym.make(gym_handle, disable_env_checker=True, **gym_kwgs)
-            for _ in range(n_envs if n_envs is not None else cfg.eval.batch_size)
-        ]
-    )
 
     return env

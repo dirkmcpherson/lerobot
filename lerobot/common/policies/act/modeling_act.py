@@ -346,6 +346,7 @@ class ACT(nn.Module):
             cam_features = self.encoder_img_feat_input_proj(cam_features)  # (B, C, h, w)
             all_cam_features.append(cam_features)
             all_cam_pos_embeds.append(cam_pos_embed)
+            # from IPython import embed; embed()
         # Concatenate camera observation feature maps and positional embeddings along the width dimension.
         encoder_in = torch.cat(all_cam_features, axis=-1)
         cam_pos_embed = torch.cat(all_cam_pos_embeds, axis=-1)

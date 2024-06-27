@@ -137,7 +137,7 @@ class Logger:
             self._wandb = wandb
         self._tensorboard = None
         if self._cfg.tensorboard.enable:
-            self._tensorboard = SummaryWriter(log_dir=self._log_dir)
+            self._tensorboard = SummaryWriter(log_dir=self.log_dir)
             logging.info(colored("Tensorboard logs will be saved locally.", "yellow", attrs=["bold"]))
 
     @classmethod
