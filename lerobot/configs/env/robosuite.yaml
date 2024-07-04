@@ -1,0 +1,18 @@
+# @package _global_
+
+fps: 20
+
+env:
+  name: robosuite
+  task: Square_D0_discrete-v0
+  image_size: 84
+  state_dim: 4
+  action_dim: 4
+  fps: ${fps}
+  episode_length: 500
+  hard_reset: false
+  gym:
+    obs_type: pixels_agent_pos
+    render_mode: rgb_array
+    visualization_width: 384
+    visualization_height: 384
