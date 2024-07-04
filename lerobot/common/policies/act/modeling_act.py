@@ -101,9 +101,11 @@ class ACTPolicy(nn.Module, PyTorchModelHubMixin):
 
         # If we are doing temporal ensembling, keep track of the exponential moving average (EMA), and return
         # the first action.
-        if self.config.temporal_ensemble_momentum is not None:
-            actions = self.model(batch)[0]  # (batch_size, chunk_size, action_dim)
-            actions = self.unnormalize_outputs({"action": actions})["action"]
+        # if self.config.temporal_ensemble_momentum is not None:
+        if False:
+            action_logits = self.model(batch)[0]  # (batch_size, chunk_size, action_dim)
+            actions = torch.softmax(action_logits, dim=-1)
+            # actions = self.unnormalize_outputs({"action": actions})["action"]
             if self._ensembled_actions is None:
                 # Initializes `self._ensembled_action` to the sequence of actions predicted during the first
                 # time step of the episode.
@@ -116,48 +118,86 @@ class ACTPolicy(nn.Module, PyTorchModelHubMixin):
                 # The last action, which has no prior moving average, needs to get concatenated onto the end.
                 self._ensembled_actions = torch.cat([self._ensembled_actions, actions[:, -1:]], dim=1)
             # "Consume" the first action.
-            action, self._ensembled_actions = self._ensembled_actions[:, 0], self._ensembled_actions[:, 1:]
-            return action
+            action_probs, self._ensembled_actions = self._ensembled_actions[:, 0], self._ensembled_actions[:, 1:]
+            return torch.argmax(action_probs, dim=-1)
 
         # Action queue logic for n_action_steps > 1. When the action_queue is depleted, populate it by
         # querying the policy.
+        # if len(self._action_queue) == 0:
+        #     actions = self.model(batch)[0][:, : self.config.n_action_steps]
+
+        #     # TODO(rcadene): make _forward return output dictionary?
+        #     actions = self.unnormalize_outputs({"action": actions})["action"]
+
+        #     # `self.model.forward` returns a (batch_size, n_action_steps, action_dim) tensor, but the queue
+        #     # effectively has shape (n_action_steps, batch_size, *), hence the transpose.
+        #     self._action_queue.extend(actions.transpose(0, 1))
+        # return self._action_queue.popleft()
         if len(self._action_queue) == 0:
-            actions = self.model(batch)[0][:, : self.config.n_action_steps]
+            action_logits = self.model(batch)[0][:, : self.config.n_action_steps]
+            self._action_queue.extend(action_logits.transpose(0, 1))
 
-            # TODO(rcadene): make _forward return output dictionary?
-            actions = self.unnormalize_outputs({"action": actions})["action"]
-
-            # `self.model.forward` returns a (batch_size, n_action_steps, action_dim) tensor, but the queue
-            # effectively has shape (n_action_steps, batch_size, *), hence the transpose.
-            self._action_queue.extend(actions.transpose(0, 1))
-        return self._action_queue.popleft()
+        action = torch.distributions.Categorical(logits=self._action_queue.popleft()).sample()
+        return action
 
     def forward(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
         """Run the batch through the model and compute the loss for training or validation."""
         batch = self.normalize_inputs(batch)
         batch["observation.images"] = torch.stack([batch[k] for k in self.expected_image_keys], dim=-4)
+        
+        # print(batch["action"])
+        
         batch = self.normalize_targets(batch)
-        actions_hat, (mu_hat, log_sigma_x2_hat) = self.model(batch)
+        action_logits, (mu_hat, log_sigma_x2_hat) = self.model(batch)
 
-        l1_loss = (
-            F.l1_loss(batch["action"], actions_hat, reduction="none") * ~batch["action_is_pad"].unsqueeze(-1)
-        ).mean()
+        # Create a mask for non-padded elements
+        non_pad_mask = ~batch["action_is_pad"].view(-1)
 
-        loss_dict = {"l1_loss": l1_loss.item()}
+        n_actions = self.config.output_shapes["action"][0]
+        action_logits_flat = action_logits.view(-1, n_actions)
+        target_flat = batch["action"].view(-1, n_actions)
+
+
+        # from IPython import embed; embed(); exit()
+        ce_loss = F.cross_entropy(
+            action_logits_flat[non_pad_mask],
+            target_flat[non_pad_mask].argmax(dim=-1),
+            reduction="mean"
+        )
+        # ce_loss = (ce_loss * ~batch["action_is_pad"].view(-1)).mean()
+
+        # from IPython import embed; embed(); exit()
+
+        loss_dict = {"ce_loss": ce_loss.item()}
         if self.config.use_vae:
-            # Calculate Dₖₗ(latent_pdf || standard_normal). Note: After computing the KL-divergence for
-            # each dimension independently, we sum over the latent dimension to get the total
-            # KL-divergence per batch element, then take the mean over the batch.
-            # (See App. B of https://arxiv.org/abs/1312.6114 for more details).
-            mean_kld = (
-                (-0.5 * (1 + log_sigma_x2_hat - mu_hat.pow(2) - (log_sigma_x2_hat).exp())).sum(-1).mean()
-            )
+            mean_kld = (-0.5 * (1 + log_sigma_x2_hat - mu_hat.pow(2) - (log_sigma_x2_hat).exp())).sum(-1).mean()
             loss_dict["kld_loss"] = mean_kld.item()
-            loss_dict["loss"] = l1_loss + mean_kld * self.config.kl_weight
+            loss_dict["loss"] = ce_loss + mean_kld * self.config.kl_weight
         else:
-            loss_dict["loss"] = l1_loss
+            loss_dict["loss"] = ce_loss
 
         return loss_dict
+        # actions_hat, (mu_hat, log_sigma_x2_hat) = self.model(batch)
+
+        # l1_loss = (
+        #     F.l1_loss(batch["action"], actions_hat, reduction="none") * ~batch["action_is_pad"].unsqueeze(-1)
+        # ).mean()
+
+        # loss_dict = {"l1_loss": l1_loss.item()}
+        # if self.config.use_vae:
+        #     # Calculate Dₖₗ(latent_pdf || standard_normal). Note: After computing the KL-divergence for
+        #     # each dimension independently, we sum over the latent dimension to get the total
+        #     # KL-divergence per batch element, then take the mean over the batch.
+        #     # (See App. B of https://arxiv.org/abs/1312.6114 for more details).
+        #     mean_kld = (
+        #         (-0.5 * (1 + log_sigma_x2_hat - mu_hat.pow(2) - (log_sigma_x2_hat).exp())).sum(-1).mean()
+        #     )
+        #     loss_dict["kld_loss"] = mean_kld.item()
+        #     loss_dict["loss"] = l1_loss + mean_kld * self.config.kl_weight
+        # else:
+        #     loss_dict["loss"] = l1_loss
+
+        # return loss_dict
 
 
 class ACT(nn.Module):
@@ -194,6 +234,32 @@ class ACT(nn.Module):
                                 │    state emb.         │
                                 └───────────────────────┘
     """
+
+    #gpt4
+    # def __init__(self, config: ACTConfig):
+    #     # Change the final action regression head to output logits for each class
+    #     self.action_head = nn.Linear(config.dim_model, num_action_categories)
+    #     ...
+
+    # def forward(self, batch: dict[str, Tensor]) -> tuple[Tensor, tuple[Tensor, Tensor] | tuple[None, None]]:
+    #     ...
+    #     # Final actions are now logits for the categorical distribution
+    #     actions_logits = self.action_head(decoder_out)
+
+    #     return actions_logits, (mu, log_sigma_x2)
+    
+    # #clause
+    # def __init__(self, config: ACTConfig):
+    #     # ... existing code ...
+    #     self.action_head = nn.Linear(config.dim_model, config.num_action_categories)
+
+    # def forward(self, batch: dict[str, Tensor]) -> tuple[Tensor, tuple[Tensor, Tensor] | tuple[None, None]]:
+    #     # ... existing code ...
+
+    #     action_logits = self.action_head(decoder_out)
+
+    #     return action_logits, (mu, log_sigma_x2)
+
 
     def __init__(self, config: ACTConfig):
         super().__init__()
@@ -404,9 +470,9 @@ class ACT(nn.Module):
         # Move back to (B, S, C).
         decoder_out = decoder_out.transpose(0, 1)
 
-        actions = self.action_head(decoder_out)
+        action_logits = self.action_head(decoder_out)
 
-        return actions, (mu, log_sigma_x2)
+        return action_logits, (mu, log_sigma_x2)
 
 
 class ACTEncoder(nn.Module):

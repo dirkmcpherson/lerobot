@@ -35,7 +35,7 @@ def create_stats_buffers(
     stats_buffers = {}
 
     for key, mode in modes.items():
-        assert mode in ["mean_std", "min_max"]
+        assert mode in ["mean_std", "min_max", "none"]
 
         shape = tuple(shapes[key])
 
@@ -150,6 +150,8 @@ class Normalize(nn.Module):
                 batch[key] = (batch[key] - min) / (max - min + 1e-8)
                 # normalize to [-1, 1]
                 batch[key] = batch[key] * 2 - 1
+            elif mode == 'none':
+                pass
             else:
                 raise ValueError(mode)
         return batch

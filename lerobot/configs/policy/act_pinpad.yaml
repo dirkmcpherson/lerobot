@@ -23,19 +23,13 @@ training:
     observation.image:
       mean: [[[0.5]], [[0.5]], [[0.5]]]  # (c,1,1)
       std: [[[0.5]], [[0.5]], [[0.5]]]  # (c,1,1)
-    observation.state:
-      min: [13.456424, 32.938293]
-      max: [496.14618, 510.9579]
-    action:
-      min: [12.0, 25.0]
-      max: [511.0, 511.0]
-
+  
   delta_timestamps:
     action: "[i / ${fps} for i in range(${policy.chunk_size})]"
 
 eval:
-  n_episodes: 50
-  batch_size: 50
+  n_episodes: 10
+  batch_size: 3
 
 # See `configuration_act.py` for more details.
 policy:
@@ -43,22 +37,20 @@ policy:
 
   # Input / output structure.
   n_obs_steps: 1
-  chunk_size: 8 # chunk_size
-  n_action_steps: 7
+  chunk_size: 16 # chunk_size
+  n_action_steps: 15
 
   input_shapes:
     # TODO(rcadene, alexander-soare): add variables for height and width from the dataset/env?
     observation.image: [3, 64, 64]
-    observation.state: ["${env.state_dim}"]
   output_shapes:
     action: ["${env.action_dim}"]
 
   # Normalization / Unnormalization
   input_normalization_modes:
     observation.image: mean_std
-    observation.state: min_max
   output_normalization_modes:
-    action: min_max
+    action: "none"
 
   # Architecture.
   # Vision backbone.
@@ -74,7 +66,7 @@ policy:
   n_encoder_layers: 4
   n_decoder_layers: 1
   # VAE.
-  use_vae: true
+  use_vae: False
   latent_dim: 32
   n_vae_encoder_layers: 4
 

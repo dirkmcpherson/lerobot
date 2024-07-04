@@ -75,6 +75,7 @@ from lerobot.common.policies.utils import get_device_from_parameters
 from lerobot.common.utils.io_utils import write_video
 from lerobot.common.utils.utils import get_safe_torch_device, init_hydra_config, init_logging, set_global_seed
 
+import cv2
 
 def rollout(
     env: gym.vector.VectorEnv,
@@ -155,7 +156,7 @@ def rollout(
 
         # Convert to CPU / numpy.
         action = action.to("cpu").numpy()
-        assert action.ndim == 2, "Action dimensions should be (batch, action_dim)"
+        # assert action.ndim == 2, f"Action dimensions should be (batch, action_dim), got {action.shape}"
 
         # Apply the next action.
         observation, reward, terminated, truncated, info = env.step(action)
@@ -262,6 +263,10 @@ def eval_policy(
         elif isinstance(env, gym.vector.AsyncVectorEnv):
             # Here we must render all frames and discard any we don't need.
             ep_frames.append(np.stack(env.call("render")[:n_to_render_now]))
+        # else:
+        #     frame = env.unwrapped.render()
+        #     # expand the first dimension
+        #     ep_frames.append(frame[np.newaxis, ...])
 
     if max_episodes_rendered > 0:
         video_paths: list[str] = []
@@ -321,7 +326,7 @@ def eval_policy(
                 start_data_index=(
                     0 if episode_data is None else (episode_data["episode_data_index"]["to"][-1].item())
                 ),
-                fps=env.unwrapped.metadata["render_fps"],
+                fps=env.unwrapped.metadata["render_fps"] if hasattr(env.unwrapped.metadata, "render_fps") else 30.0
             )
             if episode_data is None:
                 episode_data = this_episode_data
@@ -371,12 +376,14 @@ def eval_policy(
                     args=(
                         str(video_path),
                         stacked_frames[: done_index + 1],  # + 1 to capture the last observation
-                        env.unwrapped.metadata["render_fps"],
+                        env.unwrapped.metadata["render_fps"] if hasattr(env.unwrapped.metadata, "render_fps") else 30.0,
                     ),
                 )
                 thread.start()
                 threads.append(thread)
                 n_episodes_rendered += 1
+        # else:
+        #     print("No video rendered", max_episodes_rendered, len(ep_frames))
 
         progbar.set_postfix(
             {"running_success_rate": f"{np.mean(all_successes[:n_episodes]).item() * 100:.1f}%"}

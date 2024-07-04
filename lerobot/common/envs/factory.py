@@ -31,6 +31,11 @@ class OneHotAction(gym.Wrapper):
         self.action_space = space
 
     def step(self, action):
+        if len(action) == 1:
+            oh_action = np.zeros(self.env.action_space.n, dtype=np.float32)
+            oh_action[action[0]] = 1
+            action = oh_action
+
         index = np.argmax(action).astype(int)
         reference = np.zeros_like(action)
         reference[index] = 1
@@ -58,7 +63,7 @@ def make_env(cfg: DictConfig, n_envs: int | None = None) -> gym.vector.VectorEnv
 
     if cfg.env.name == "pinpad":
         # assert config.size == (64, 64), "PinPad only supports 64x64 images " + str(config.size)
-        env = PinPad('five', extra_obs=False, size=(64, 64))
+        env = PinPad('four', extra_obs=False, size=(64, 64), length=cfg.env.max_episode_steps)
         # env = gym.vector.SyncVectorEnv([env])
         env = OneHotAction(env)
         env.num_envs = 1

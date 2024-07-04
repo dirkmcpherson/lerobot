@@ -37,6 +37,7 @@ class PinPad(gym.Env):
     self.layout = np.array([list(line) for line in layout.split('\n')]).T
     assert self.layout.shape == (16, 14), self.layout.shape
     self.length = length
+    self._max_episode_steps = length
     self.random = np.random.RandomState()
     self.pads = set(self.layout.flatten().tolist()) - set('* #\n')
     if task in self.CUSTOM_TARGETS:
@@ -154,7 +155,7 @@ class PinPad(gym.Env):
     if info is not None:
       obs.update(info)
 
-    return obs, reward, self.done, {}
+    return obs, np.array([reward]), np.array([self.done]), np.array(False), {}
 
   def render(self):
     grid = np.zeros((16, 16, 3), np.uint8) + 255
@@ -194,6 +195,13 @@ class PinPad(gym.Env):
     return dict(
         image=self.render(), reward=reward, is_first=is_first, is_last=is_last,
         is_terminal=is_terminal)
+
+  def call(self, name: str, *args, **kwargs):
+    attr = getattr(self, name)
+    if type(attr) is not type(self.call):
+      return [attr]
+    else:
+      return [attr(*args, **kwargs)]
 
 
 LAYOUT_THREE = """

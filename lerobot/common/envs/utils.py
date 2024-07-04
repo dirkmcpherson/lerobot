@@ -38,6 +38,8 @@ def preprocess_observation(observations: dict[str, np.ndarray]) -> dict[str, Ten
         img = torch.from_numpy(img)
 
         # sanity check that images are channel last
+        if len(img.shape) == 3:
+            img = img[np.newaxis, ...]
         _, h, w, c = img.shape
         assert c < h and c < w, f"expect channel first images, but instead {img.shape}"
 
@@ -53,6 +55,9 @@ def preprocess_observation(observations: dict[str, np.ndarray]) -> dict[str, Ten
 
     # TODO(rcadene): enable pixels only baseline with `obs_type="pixels"` in environment by removing
     # requirement for "agent_pos"
-    return_observations["observation.state"] = torch.from_numpy(observations["vector_state"]).float()
+    if 'vector_state' in observations:
+        return_observations["observation.state"] = torch.from_numpy(observations["vector_state"]).float()
+    else:
+        return_observations["observation.state"] = torch.zeros(1)
 
     return return_observations

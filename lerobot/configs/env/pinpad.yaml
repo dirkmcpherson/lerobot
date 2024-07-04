@@ -4,14 +4,15 @@ fps: 1
 
 env:
   name: pinpad
-  task: pinpad_five
+  task: pinpad_four
   from_pixels: True
   pixels_only: True
   image_size: [3, 64, 64]
-  episode_length: 1000
+  episode_length: 250
+  max_episode_steps: 250
   fps: ${fps}
   action_dim: 5
-  state_dim: 1
+  state_dim: 0
   gym:
     obs_type: image
     render_mode: rgb_array
