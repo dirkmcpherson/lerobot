@@ -263,10 +263,11 @@ def eval_policy(
         elif isinstance(env, gym.vector.AsyncVectorEnv):
             # Here we must render all frames and discard any we don't need.
             ep_frames.append(np.stack(env.call("render")[:n_to_render_now]))
-        # else:
-        #     frame = env.unwrapped.render()
-        #     # expand the first dimension
-        #     ep_frames.append(frame[np.newaxis, ...])
+        else:
+            # from IPython import embed; embed(); raise NotImplementedError("Unknown VectorEnv type")
+            frame = env.unwrapped.call("render")[0]
+            # einops.rearrange(frame, "h w c -> c h w")
+            ep_frames.append(frame[np.newaxis, ...])
 
     if max_episodes_rendered > 0:
         video_paths: list[str] = []

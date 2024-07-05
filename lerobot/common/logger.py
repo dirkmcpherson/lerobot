@@ -258,6 +258,8 @@ class Logger:
             self._wandb.log({f"{mode}/video": wandb_video}, step=step)
         if self._tensorboard is not None:
             # Read video file and convert it to tensorboard format
+            # from IPython import embed as ipshell; ipshell()
+            video_path = np.random.choice(video_path) if len(video_path) > 1 else video_path[0]
             frames = iio.imread(video_path, plugin="pyav")
             video_np = np.array(list(frames))
             T, H, W, C = video_np.shape
