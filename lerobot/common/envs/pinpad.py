@@ -23,7 +23,7 @@ class PinPad(gym.Env):
       # 'three': ('1', '2', '3', '1', '3'),
   }
 
-  def __init__(self, task, length=10000, extra_obs=False, size=[64, 64], random_starting_pos=True):
+  def __init__(self, task, length=10000, extra_obs=False, size=[224, 224], random_starting_pos=True):
     assert length > 0
     self.size = size
     layout = {
@@ -315,6 +315,9 @@ if __name__ == '__main__':
   total_r = 0.0
   for steps in range(l):
     img = env.render()
+    # print the range of the image
+    print(f"min {img.min()} max {img.max()}")
+    
     cv2.imshow("pinpad", img)
     key = cv2.waitKey(0)
     if key == ord('w'):

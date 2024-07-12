@@ -18,7 +18,7 @@
 As per Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware (https://arxiv.org/abs/2304.13705).
 The majority of changes here involve removing unused code, unifying naming, and adding helpful comments.
 """
-
+import cv2 
 import math
 from collections import deque
 from itertools import chain
@@ -136,8 +136,11 @@ class ACTPolicy(nn.Module, PyTorchModelHubMixin):
         if len(self._action_queue) == 0:
             action_logits = self.model(batch)[0][:, : self.config.n_action_steps]
             self._action_queue.extend(action_logits.transpose(0, 1))
+            # from IPython import embed; embed(); exit()
 
-        action = torch.distributions.Categorical(logits=self._action_queue.popleft()).sample()
+        action_dist = torch.distributions.Categorical(logits=self._action_queue.popleft())
+        print([f'{i:.2f}' for i in action_dist.probs.detach().cpu().numpy()[0]])
+        action = action_dist.sample()
         return action
 
     def forward(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
@@ -169,12 +172,14 @@ class ACTPolicy(nn.Module, PyTorchModelHubMixin):
         # from IPython import embed; embed(); exit()
 
         loss_dict = {"ce_loss": ce_loss.item()}
-        if self.config.use_vae:
-            mean_kld = (-0.5 * (1 + log_sigma_x2_hat - mu_hat.pow(2) - (log_sigma_x2_hat).exp())).sum(-1).mean()
-            loss_dict["kld_loss"] = mean_kld.item()
-            loss_dict["loss"] = ce_loss + mean_kld * self.config.kl_weight
-        else:
-            loss_dict["loss"] = ce_loss
+        # if self.config.use_vae:
+        #     mean_kld = (-0.5 * (1 + log_sigma_x2_hat - mu_hat.pow(2) - (log_sigma_x2_hat).exp())).sum(-1).mean()
+        #     loss_dict["kld_loss"] = mean_kld.item()
+        #     loss_dict["loss"] = ce_loss + mean_kld * self.config.kl_weight
+        # else:
+        loss_dict["loss"] = ce_loss
+
+        # from IPython import embed; embed(); exit()
 
         return loss_dict
         # actions_hat, (mu_hat, log_sigma_x2_hat) = self.model(batch)

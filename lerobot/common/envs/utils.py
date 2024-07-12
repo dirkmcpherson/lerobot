@@ -17,6 +17,7 @@ import einops
 import numpy as np
 import torch
 from torch import Tensor
+import cv2
 
 
 def preprocess_observation(observations: dict[str, np.ndarray]) -> dict[str, Tensor]:
@@ -28,6 +29,7 @@ def preprocess_observation(observations: dict[str, np.ndarray]) -> dict[str, Ten
     """
     # map to expected inputs for the policy
     return_observations = {}
+    cv2.destroyAllWindows()
 
     if isinstance(observations["image"], dict):
         imgs = {f"observation.images.{key}": img for key, img in observations["image"].items()}
@@ -35,6 +37,8 @@ def preprocess_observation(observations: dict[str, np.ndarray]) -> dict[str, Ten
         imgs = {"observation.image": observations["image"]}
 
     for imgkey, img in imgs.items():
+        img = cv2.resize(img, (224, 224), interpolation=cv2.INTER_LINEAR)
+
         img = torch.from_numpy(img)
 
         # sanity check that images are channel last

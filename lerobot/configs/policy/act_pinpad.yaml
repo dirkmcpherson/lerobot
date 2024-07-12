@@ -1,6 +1,6 @@
 # @package _global_
 
-seed: 1000
+seed: 423
 dataset_repo_id: pinpad
 
 training:
@@ -11,7 +11,7 @@ training:
   log_freq: 250
   save_model: true
 
-  batch_size: 32
+  batch_size: 16
   lr: 1e-5
   lr_backbone: 1e-5
   weight_decay: 1e-4
@@ -21,15 +21,15 @@ training:
   override_dataset_stats:
     # stats from imagenet, since we use a pretrained vision model
     observation.image:
-      mean: [[[0.5]], [[0.5]], [[0.5]]]  # (c,1,1)
-      std: [[[0.5]], [[0.5]], [[0.5]]]  # (c,1,1)
+      mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
+      std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
   
   delta_timestamps:
     action: "[i / ${fps} for i in range(${policy.chunk_size})]"
 
 eval:
-  n_episodes: 10
-  batch_size: 3
+  n_episodes: 1
+  batch_size: 1
 
 # See `configuration_act.py` for more details.
 policy:
@@ -37,12 +37,12 @@ policy:
 
   # Input / output structure.
   n_obs_steps: 1
-  chunk_size: 32 # chunk_size
-  n_action_steps: 31
+  chunk_size: 12 # chunk_size
+  n_action_steps: 2
 
   input_shapes:
     # TODO(rcadene, alexander-soare): add variables for height and width from the dataset/env?
-    observation.image: [3, 64, 64]
+    observation.image: [3, 224, 224]
   output_shapes:
     action: ["${env.action_dim}"]
 
