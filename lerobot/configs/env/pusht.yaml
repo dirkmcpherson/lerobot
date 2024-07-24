@@ -5,13 +5,13 @@ fps: 10
 env:
   name: pusht
   task: PushT-v0
-  image_size: 96
+  image_size: 64
   state_dim: 2
   action_dim: 2
   fps: ${fps}
   episode_length: 300
   gym:
-    obs_type: pixels_agent_pos
+    obs_type: pixels #pixels_agent_pos
     render_mode: rgb_array
-    visualization_width: 384
-    visualization_height: 384
+    observation_width: 64
+    observation_height: 64

@@ -7,6 +7,7 @@ training:
   offline_steps: 50000
   online_steps: 50000
   eval_freq: 5000
+  save_freq: 100000
   # Note: in FOWM this is actually dynamically set to match exactly the length of the last sampled episode.
   online_steps_between_rollouts: 50
   online_rollout_n_episodes: 1
@@ -40,7 +41,7 @@ policy:
 
   input_shapes:
     # TODO(rcadene, alexander-soare): add variables for height and width from the dataset/env?
-    observation.image: [3, 84, 84]
+    observation.image: [3, 94, 94]
     observation.state: ["${env.state_dim}"]
   output_shapes:
     action: ["${env.action_dim}"]

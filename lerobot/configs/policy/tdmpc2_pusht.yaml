@@ -45,14 +45,14 @@ policy:
 
   input_shapes:
     # TODO(rcadene, alexander-soare): add variables for height and width from the dataset/env?
-    observation.image: [3, 96, 96]
-    observation.state: ["${env.state_dim}"]
+    observation.image: [3, 64, 64]
+    # observation.state: ["${env.state_dim}"]
   output_shapes:
     action: ["${env.action_dim}"]
 
   # Normalization / Unnormalization
   input_normalization_modes:
-    observation.state: min_max
+    # observation.state: min_max
   output_normalization_modes:
     action: min_max
 
@@ -60,7 +60,7 @@ policy:
   # Neural networks.
   image_encoder_hidden_dim: 32
   state_encoder_hidden_dim: 256
-  latent_dim: 50
+  latent_dim: 512
   q_ensemble_size: 5
   mlp_dim: 512
   # Reinforcement learning.

@@ -112,7 +112,7 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
         called on `env.reset()`
         """
         self._queues = {
-            "observation.state": deque(maxlen=1),
+            # "observation.state": deque(maxlen=1),
             "action": deque(maxlen=max(self.config.n_action_steps, self.config.n_action_repeats)),
         }
         if self._use_image:
@@ -386,7 +386,9 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
         # gives us a next `z`.
         batch_size = batch["index"].shape[0]
         z_preds = torch.empty(horizon + 1, batch_size, self.config.latent_dim, device=device)
-        z_preds[0] = self.model.encode(current_observation)
+        pred = self.model.encode(current_observation)
+        # from IPython import embed; embed()
+        z_preds[0] = pred
         reward_preds = torch.empty_like(reward, device=device)
         for t in range(horizon):
             z_preds[t + 1], reward_preds[t] = self.model.latent_dynamics_and_reward(z_preds[t], action[t])
@@ -560,48 +562,45 @@ class TDMPC2TOLD(nn.Module):
     def __init__(self, config: TDMPC2Config):
         super().__init__()
         self.config = config
-        self._encoder = layers.enc(config)
-        self._dynamics = layers.mlp(config.latent_dim + config.action_dim, 2*[config.mlp_dim], config.latent_dim, act=layers.SimNorm(config))
-        self._reward = layers.mlp(config.latent_dim + config.action_dim, 2*[config.mlp_dim], max(config.num_bins, 1))
-        self._pi = layers.mlp(config.latent_dim, 2*[config.mlp_dim], 2*config.action_dim)
-        self._Qs = layers.Ensemble([layers.mlp(config.latent_dim + config.action_dim, 2*[config.mlp_dim], max(config.num_bins, 1), dropout=config.dropout) for _ in range(config.num_q)])
-        self._init_weights()
+        action_dim = config.output_shapes["action"][0]
+        # TODO: move to config
+        dropout = 0.01; num_q = 5; num_bins = 101
 
+        self._encoder = TDMPC2ObservationEncoder(config)
+        self._dynamics = layers.mlp(config.latent_dim + action_dim, 2*[config.mlp_dim], config.latent_dim, act=layers.SimNorm(config))
+        self._reward = layers.mlp(config.latent_dim + action_dim, 2*[config.mlp_dim], max(num_bins, 1))
+        self._pi = layers.mlp(config.latent_dim, 2*[config.mlp_dim], 2*action_dim)
+        self._Qs = layers.Ensemble([layers.mlp(config.latent_dim + action_dim, 2*[config.mlp_dim], max(num_bins, 1), dropout=dropout) for _ in range(num_q)])
+        
+        
+        self.apply(self.weight_init)
         for p in [self._reward[-1].weight, self._Qs.params[-2]]: # from init::zero_ in nicklas' code
             p.data.fill_(0)
+        
+        
         self._target_Qs = deepcopy(self._Qs).requires_grad_(False)
-        self.log_std_min = torch.tensor(config.log_std_min)
-        self.log_std_dif = torch.tensor(config.log_std_max) - self.log_std_min
+        log_std_min, log_std_max = -10, 2 # TODO: add to config
+        self.log_std_min = torch.tensor(log_std_min)
+        self.log_std_dif = torch.tensor(log_std_max) - self.log_std_min
 
-    def _init_weights(self):
-        """Initialize model weights.
-
-        Orthogonal initialization for all linear and convolutional layers' weights (apart from final layers
-        of reward network and Q networks which get zero initialization).
-        Zero initialization for all linear and convolutional layers' biases.
-        """
-
-        def _apply_fn(m):
-            if isinstance(m, nn.Linear):
-                nn.init.orthogonal_(m.weight.data)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.Conv2d):
-                gain = nn.init.calculate_gain("relu")
-                nn.init.orthogonal_(m.weight.data, gain)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-
-        self.apply(_apply_fn)
-        for m in [self._reward, *self._Qs]:
-            assert isinstance(
-                m[-1], nn.Linear
-            ), "Sanity check. The last linear layer needs 0 initialization on weights."
-            nn.init.zeros_(m[-1].weight)
-            nn.init.zeros_(m[-1].bias)  # this has already been done, but keep this line here for good measure
+    def weight_init(self, m): # lifted from Nicklas' code
+        """Custom weight initialization for TD-MPC2."""
+        if isinstance(m, nn.Linear):
+            nn.init.trunc_normal_(m.weight, std=0.02)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.Embedding):
+            nn.init.uniform_(m.weight, -0.02, 0.02)
+        elif isinstance(m, nn.ParameterList):
+            for i,p in enumerate(m):
+                if p.dim() == 3: # Linear
+                    nn.init.trunc_normal_(p, std=0.02) # Weight
+                    nn.init.constant_(m[i+1], 0) # Bias
 
     def encode(self, obs: dict[str, Tensor]) -> Tensor:
         """Encodes an observation into its latent representation."""
+        # from IPython import embed; embed()
+        # print(obs["observation.state"].shape, obs["observation.image"].shape)
         return self._encoder(obs)
 
     def latent_dynamics_and_reward(self, z: Tensor, a: Tensor) -> tuple[Tensor, Tensor]:
@@ -693,48 +692,18 @@ class TDMPC2ObservationEncoder(nn.Module):
         super().__init__()
         self.config = config
 
-        if "observation.image" in config.input_shapes:
-            self.image_enc_layers = nn.Sequential(
-                nn.Conv2d(
-                    config.input_shapes["observation.image"][0], config.image_encoder_hidden_dim, 7, stride=2
-                ),
-                nn.ReLU(),
-                nn.Conv2d(config.image_encoder_hidden_dim, config.image_encoder_hidden_dim, 5, stride=2),
-                nn.ReLU(),
-                nn.Conv2d(config.image_encoder_hidden_dim, config.image_encoder_hidden_dim, 3, stride=2),
-                nn.ReLU(),
-                nn.Conv2d(config.image_encoder_hidden_dim, config.image_encoder_hidden_dim, 3, stride=2),
-                nn.ReLU(),
-            )
-            dummy_batch = torch.zeros(1, *config.input_shapes["observation.image"])
-            with torch.inference_mode():
-                out_shape = self.image_enc_layers(dummy_batch).shape[1:]
-            self.image_enc_layers.extend(
-                nn.Sequential(
-                    nn.Flatten(),
-                    nn.Linear(np.prod(out_shape), config.latent_dim),
-                    nn.LayerNorm(config.latent_dim),
-                    nn.Sigmoid(),
-                )
-            )
-        if "observation.state" in config.input_shapes:
-            self.state_enc_layers = nn.Sequential(
-                nn.Linear(config.input_shapes["observation.state"][0], config.state_encoder_hidden_dim),
-                nn.ELU(),
-                nn.Linear(config.state_encoder_hidden_dim, config.latent_dim),
-                nn.LayerNorm(config.latent_dim),
-                nn.Sigmoid(),
-            )
-        if "observation.environment_state" in config.input_shapes:
-            self.env_state_enc_layers = nn.Sequential(
-                nn.Linear(
-                    config.input_shapes["observation.environment_state"][0], config.state_encoder_hidden_dim
-                ),
-                nn.ELU(),
-                nn.Linear(config.state_encoder_hidden_dim, config.latent_dim),
-                nn.LayerNorm(config.latent_dim),
-                nn.Sigmoid(),
-            )
+            # TODO: move to config
+        task_dim = 0; num_channels=32; num_enc_layers=2; enc_dim=256;
+        for k in config.input_shapes.keys():
+            if "observation.environment_state" in k:
+                obs_dim = config.input_shapes["observation.environment_state"][0]
+                self.env_state_enc_layers = layers.mlp(obs_dim + task_dim, max(num_enc_layers-1, 1)*[enc_dim], config.latent_dim, act=layers.SimNorm(config))
+            elif "observation.state" in k:
+                obs_dim = config.input_shapes["observation.state"][0]
+                self.state_enc_layers = layers.mlp(obs_dim + task_dim, max(num_enc_layers-1, 1)*[enc_dim], config.latent_dim, act=layers.SimNorm(config))
+            elif "observation.image" in k:
+                obs_shape = config.input_shapes["observation.image"]
+                self.image_enc_layers = layers.conv(obs_shape, num_channels, act=layers.SimNorm(config))
 
     def forward(self, obs_dict: dict[str, Tensor]) -> Tensor:
         """Encode the image and/or state vector.

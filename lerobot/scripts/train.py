@@ -93,6 +93,9 @@ def make_optimizer_and_scheduler(cfg, policy):
     elif policy.name == "tdmpc":
         optimizer = torch.optim.Adam(policy.parameters(), cfg.training.lr)
         lr_scheduler = None
+    elif cfg.policy.name == "tdmpc2":
+        optimizer = torch.optim.Adam(policy.parameters(), cfg.training.lr)
+        lr_scheduler = None
     elif cfg.policy.name == "vqbet":
         from lerobot.common.policies.vqbet.modeling_vqbet import VQBeTOptimizer, VQBeTScheduler
 
@@ -411,6 +414,15 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
 
         start_time = time.perf_counter()
         batch = next(dl_iter)
+
+        if batch["observation.image"].shape[-1] != 64:
+            print(f"WARN: image shape is {batch['observation.image'].shape}. Scaling image.")
+            # from IPython import embed; embed()
+            b, t, c, h, w = batch["observation.image"].shape
+            batch["observation.image"] = nn.functional.interpolate(
+                batch["observation.image"].reshape(b*t, c, h, w), size=(64, 64), mode="bilinear"
+            ).reshape(b, t, c, 64, 64)
+
         dataloading_s = time.perf_counter() - start_time
 
         for key in batch:

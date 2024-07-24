@@ -110,8 +110,8 @@ class TDMPC2Config:
 
     input_shapes: dict[str, list[int]] = field(
         default_factory=lambda: {
-            "observation.image": [3, 84, 84],
-            "observation.state": [4],
+            "observation.image": [3, 64, 64],
+            # "observation.state": [4],
         }
     )
     output_shapes: dict[str, list[int]] = field(
