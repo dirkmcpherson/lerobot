@@ -103,6 +103,10 @@ class TDMPC2Config:
 
     multitask: bool = False
 
+    num_bins = 101
+    vmin = -10
+    vmax = +10
+
     # Input / output structure.
     n_action_repeats: int = 2
     horizon: int = 5

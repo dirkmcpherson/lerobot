@@ -173,28 +173,28 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
         return action
     
     # @torch.no_grad()
-	# def act(self, obs, t0=False, eval_mode=False, task=None):
-	# 	"""
-	# 	Select an action by planning in the latent space of the world model.
-		
-	# 	Args:
-	# 		obs (torch.Tensor): Observation from the environment.
-	# 		t0 (bool): Whether this is the first observation in the episode.
-	# 		eval_mode (bool): Whether to use the mean of the action distribution.
-	# 		task (int): Task index (only used for multi-task experiments).
-		
-	# 	Returns:
-	# 		torch.Tensor: Action to take in the environment.
-	# 	"""
-	# 	obs = obs.to(self.device, non_blocking=True).unsqueeze(0)
-	# 	if task is not None:
-	# 		task = torch.tensor([task], device=self.device)
-	# 	z = self.model.encode(obs, task)
-	# 	if self.cfg.mpc:
-	# 		a = self.plan(z, t0=t0, eval_mode=eval_mode, task=task)
-	# 	else:
-	# 		a = self.model.pi(z, task)[int(not eval_mode)][0]
-	# 	return a.cpu()
+    # def act(self, obs, t0=False, eval_mode=False, task=None):
+    # 	"""
+    # 	Select an action by planning in the latent space of the world model.
+        
+    # 	Args:
+    # 		obs (torch.Tensor): Observation from the environment.
+    # 		t0 (bool): Whether this is the first observation in the episode.
+    # 		eval_mode (bool): Whether to use the mean of the action distribution.
+    # 		task (int): Task index (only used for multi-task experiments).
+        
+    # 	Returns:
+    # 		torch.Tensor: Action to take in the environment.
+    # 	"""
+    # 	obs = obs.to(self.device, non_blocking=True).unsqueeze(0)
+    # 	if task is not None:
+    # 		task = torch.tensor([task], device=self.device)
+    # 	z = self.model.encode(obs, task)
+    # 	if self.cfg.mpc:
+    # 		a = self.plan(z, t0=t0, eval_mode=eval_mode, task=task)
+    # 	else:
+    # 		a = self.model.pi(z, task)[int(not eval_mode)][0]
+    # 	return a.cpu()
 
     @torch.no_grad()
     def plan(self, z: Tensor) -> Tensor:
@@ -222,7 +222,7 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
             for t in range(self.config.horizon):
                 # Note: Adding a small amount of noise here doesn't hurt during inference and may even be
                 # helpful for CEM.
-                pi_actions[t] = self.model.pi(_z, self.config.min_std)
+                pi_actions[t] = self.model.pi(_z)
                 _z = self.model.latent_dynamics(_z, pi_actions[t])
 
         # In the CEM loop we will need this for a call to estimate_value with the gaussian sampled
@@ -290,7 +290,7 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
 
         return actions
 
-    @torch.no_grad()
+    @torch.no_grad() # TODO: update to tdmpc2
     def estimate_value(self, z: Tensor, actions: Tensor):
         """Estimates the value of a trajectory as per eqn 4 of the FOWM paper.
 
@@ -309,7 +309,7 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
             # of the FOWM paper.
             if self.config.uncertainty_regularizer_coeff > 0:
                 regularization = -(
-                    self.config.uncertainty_regularizer_coeff * self.model.Qs(z, actions[t]).std(0)
+                    self.config.uncertainty_regularizer_coeff * self.model.Qs(z, actions[t], return_type="all").std(0)
                 )
             else:
                 regularization = 0
@@ -323,8 +323,8 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
         # estimators.
         # Note: This small amount of added noise seems to help a bit at inference time as observed by success
         # metrics over 50 episodes of xarm_lift_medium_replay.
-        next_action = self.model.pi(z, self.config.min_std)  # (batch, action_dim)
-        terminal_values = self.model.Qs(z, next_action)  # (ensemble, batch)
+        next_action = self.model.pi(z)  # (batch, action_dim)
+        terminal_values = self.model.Qs(z, next_action, return_type='all')  # (ensemble, batch)
         # Randomly choose 2 of the Qs for terminal value estimation (as in App C. of the FOWM paper).
         if self.config.q_ensemble_size > 2:
             G += (
@@ -394,24 +394,26 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
             z_preds[t + 1], reward_preds[t] = self.model.latent_dynamics_and_reward(z_preds[t], action[t])
 
         # Compute Q and V value predictions based on the latent rollout.
-        q_preds_ensemble = self.model.Qs(z_preds[:-1], action)  # (ensemble, horizon, batch)
-        v_preds = self.model.V(z_preds[:-1])
-        info.update({"Q": q_preds_ensemble.mean().item(), "V": v_preds.mean().item()})
+        q_preds_ensemble = self.model.Qs(z_preds[:-1], action, return_type='all')  # (ensemble, horizon, batch)
+        info.update({"Q": q_preds_ensemble.mean().item()})
 
         # Compute various targets with stopgrad.
         with torch.no_grad():
             # Latent state consistency targets.
             z_targets = self.model_target.encode(next_observations)
-            # State-action value targets (or TD targets) as in eqn 3 of the FOWM. Unlike TD-MPC which uses the
-            # learned state-action value function in conjunction with the learned policy: Q(z, π(z)), FOWM
-            # uses a learned state value function: V(z). This means the TD targets only depend on in-sample
-            # actions (not actions estimated by π).
-            # Note: Here we do not use self.model_target, but self.model. This is to follow the original code
-            # and the FOWM paper.
+
+            # get the next targets # _td_target in the original code
+            pi = self.model.pi(z_targets)[1]
+            discount = self.config.discount
+            td_target = reward + discount * self.model_target.Qs(z_targets, pi, return_type='min', target=True)
+            # end td_target
+
+            # NOTE: JSS 7/24 go from here.
+
             q_targets = reward + self.config.discount * self.model.V(self.model.encode(next_observations))
             # From eqn 3 of FOWM. These appear as Q(z, a). Here we call them v_targets to emphasize that we
             # are using them to compute loss for V.
-            v_targets = self.model_target.Qs(z_preds[:-1].detach(), action, return_min=True)
+            v_targets = self.model_target.Qs(z_preds[:-1].detach(), action, return_type='min')
 
         # Compute losses.
         # Exponentially decay the loss weight with respect to the timestep. Steps that are more distant in the
@@ -492,7 +494,7 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
         z_preds = z_preds.detach()
         # Use stopgrad for the advantage calculation.
         with torch.no_grad():
-            advantage = self.model_target.Qs(z_preds[:-1], action, return_min=True) - self.model.V(
+            advantage = self.model_target.Qs(z_preds[:-1], action, return_type='min') - self.model.V(
                 z_preds[:-1]
             )
             info["advantage"] = advantage[0]
@@ -554,7 +556,61 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
         # we update every step and adjust the decay parameter `alpha` accordingly (0.99 -> 0.995)
         update_ema_parameters(self.model_target, self.model, self.config.target_model_momentum)
 
+# lifted from Nicklas' code
+@torch.jit.script
+def log_std(x, low, dif):
+	return low + 0.5 * dif * (torch.tanh(x) + 1)
 
+@torch.jit.script
+def _gaussian_residual(eps, log_std):
+	return -0.5 * eps.pow(2) - log_std
+
+@torch.jit.script
+def _gaussian_logprob(residual):
+	return residual - 0.5 * torch.log(2 * torch.pi)
+
+def gaussian_logprob(eps, log_std, size=None):
+	"""Compute Gaussian log probability."""
+	residual = _gaussian_residual(eps, log_std).sum(-1, keepdim=True)
+	if size is None:
+		size = eps.size(-1)
+	return _gaussian_logprob(residual) * size
+
+
+@torch.jit.script
+def _squash(pi):
+	return torch.log(F.relu(1 - pi.pow(2)) + 1e-6)
+
+
+def squash(mu, pi, log_pi):
+	"""Apply squashing function."""
+	mu = torch.tanh(mu)
+	pi = torch.tanh(pi)
+	log_pi -= _squash(pi).sum(-1, keepdim=True)
+	return mu, pi, log_pi
+
+@torch.jit.script
+def symexp(x):
+    """
+    Symmetric exponential function.
+    Adapted from https://github.com/danijar/dreamerv3.
+    """
+    return torch.sign(x) * (torch.exp(torch.abs(x)) - 1)
+
+def two_hot_inv(x, cfg):
+    """Converts a batch of soft two-hot encoded vectors to scalars."""
+    global DREG_BINS
+    if cfg.num_bins == 0:
+        return x
+    elif cfg.num_bins == 1:
+        return symexp(x)
+    if DREG_BINS is None:
+        DREG_BINS = torch.linspace(cfg.vmin, cfg.vmax, cfg.num_bins, device=x.device)
+    x = F.softmax(x, dim=-1)
+    x = torch.sum(x * DREG_BINS, dim=-1, keepdim=True)
+    return symexp(x)
+
+DREG_BINS = None
 from lerobot.common.policies.tdmpc2 import layers # directly lifted from Nicklas Hansen's tdmpc2 repo.
 class TDMPC2TOLD(nn.Module):
     """Task-Oriented Latent Dynamics (TOLD) model used in TD-MPC."""
@@ -564,13 +620,13 @@ class TDMPC2TOLD(nn.Module):
         self.config = config
         action_dim = config.output_shapes["action"][0]
         # TODO: move to config
-        dropout = 0.01; num_q = 5; num_bins = 101
+        dropout = 0.01; num_q = 5
 
         self._encoder = TDMPC2ObservationEncoder(config)
         self._dynamics = layers.mlp(config.latent_dim + action_dim, 2*[config.mlp_dim], config.latent_dim, act=layers.SimNorm(config))
-        self._reward = layers.mlp(config.latent_dim + action_dim, 2*[config.mlp_dim], max(num_bins, 1))
+        self._reward = layers.mlp(config.latent_dim + action_dim, 2*[config.mlp_dim], max(config.num_bins, 1))
         self._pi = layers.mlp(config.latent_dim, 2*[config.mlp_dim], 2*action_dim)
-        self._Qs = layers.Ensemble([layers.mlp(config.latent_dim + action_dim, 2*[config.mlp_dim], max(num_bins, 1), dropout=dropout) for _ in range(num_q)])
+        self._Qs = layers.Ensemble([layers.mlp(config.latent_dim + action_dim, 2*[config.mlp_dim], max(config.num_bins, 1), dropout=dropout) for _ in range(num_q)])
         
         
         self.apply(self.weight_init)
@@ -615,7 +671,10 @@ class TDMPC2TOLD(nn.Module):
                 - (*,) tensor for the estimated reward.
         """
         x = torch.cat([z, a], dim=-1)
-        return self._dynamics(x), self._reward(x).squeeze(-1)
+        r = self._reward(x)
+        r = two_hot_inv(r, self.config).squeeze(-1)
+        # from IPython import embed; embed()
+        return self._dynamics(x), r
 
     def latent_dynamics(self, z: Tensor, a: Tensor) -> Tensor:
         """Predict the next state's latent representation given a current latent and action.
@@ -629,55 +688,57 @@ class TDMPC2TOLD(nn.Module):
         x = torch.cat([z, a], dim=-1)
         return self._dynamics(x)
 
-    def pi(self, z: Tensor, std: float = 0.0) -> Tensor:
-        """Samples an action from the learned policy.
-
-        The policy can also have added (truncated) Gaussian noise injected for encouraging exploration when
-        generating rollouts for online training.
-
-        Args:
-            z: (*, latent_dim) tensor for the current state's latent representation.
-            std: The standard deviation of the injected noise.
-        Returns:
-            (*, action_dim) tensor for the sampled action.
+    def pi(self, z): # lifted from Nicklas' code
         """
-        action = torch.tanh(self._pi(z))
-        if std > 0:
-            std = torch.ones_like(action) * std
-            action += torch.randn_like(action) * std
-        return action
-
-    def V(self, z: Tensor) -> Tensor:  # noqa: N802
-        """Predict state value (V).
-
-        Args:
-            z: (*, latent_dim) tensor for the current state's latent representation.
-        Returns:
-            (*,) tensor of estimated state values.
+        Samples an action from the policy prior.
+        The policy prior is a Gaussian distribution with
+        mean and (log) std predicted by a neural network.
         """
-        return self._V(z).squeeze(-1)
+        if self.config.multitask: raise NotImplementedError("Multitask not implemented for pi yet.")
 
-    def Qs(self, z: Tensor, a: Tensor, return_min: bool = False) -> Tensor:  # noqa: N802
+        # Gaussian policy prior
+        mu, log_std = self._pi(z).chunk(2, dim=-1)
+        log_std = log_std(log_std, self.log_std_min, self.log_std_dif)
+        eps = torch.randn_like(mu)
+
+        # No masking
+        action_dims = None
+
+        log_pi = gaussian_logprob(eps, log_std, size=action_dims)
+        pi = mu + eps * log_std.exp()
+        mu, pi, log_pi = squash(mu, pi, log_pi)
+
+        return mu, pi, log_pi, log_std
+    
+    def Qs(self, z: Tensor, a: Tensor, return_type: str = 'min', target: bool = False) -> Tensor:  # noqa: N802
         """Predict state-action value for all of the learned Q functions.
 
         Args:
             z: (*, latent_dim) tensor for the current state's latent representation.
             a: (*, action_dim) tensor for the action to be applied.
-            return_min: Set to true for implementing the detail in App. C of the FOWM paper: randomly select
-                2 of the Qs and return the minimum
+            return_type can be one of [`min`, `avg`, `all`]:
+                - `min`: return the minimum of two randomly subsampled Q-values.
+                - `avg`: return the average of two randomly subsampled Q-values.
+                - `all`: return all Q-values.
+            target: Set to true to use the target Q functions.
         Returns:
             (q_ensemble, *) tensor for the value predictions of each learned Q function in the ensemble OR
             (*,) tensor if return_min=True.
         """
-        x = torch.cat([z, a], dim=-1)
-        if not return_min:
-            return torch.stack([q(x).squeeze(-1) for q in self._Qs], dim=0)
-        else:
-            if len(self._Qs) > 2:  # noqa: SIM108
-                Qs = [self._Qs[i] for i in np.random.choice(len(self._Qs), size=2)]
-            else:
-                Qs = self._Qs
-            return torch.stack([q(x).squeeze(-1) for q in Qs], dim=0).min(dim=0)[0]
+        assert return_type in {'min', 'avg', 'all'}
+
+        if self.config.multitask:
+            raise NotImplementedError("Multitask not implemented for Qs yet.")
+            
+        z = torch.cat([z, a], dim=-1)
+        out = (self._target_Qs if target else self._Qs)(z)
+
+        if return_type == 'all':
+            return out
+
+        Q1, Q2 = out[np.random.choice(self.config.num_q, 2, replace=False)]
+        Q1, Q2 = two_hot_inv(Q1, self.config), two_hot_inv(Q2, self.config)
+        return torch.min(Q1, Q2) if return_type == 'min' else (Q1 + Q2) / 2
 
 
 class TDMPC2ObservationEncoder(nn.Module):
