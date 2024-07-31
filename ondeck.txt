@@ -1,0 +1,1 @@
+python lerobot/scripts/train.py policy=tdmpc2_pusht env=pusht dataset_repo_id=lerobot/pusht

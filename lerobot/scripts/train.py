@@ -125,39 +125,46 @@ def update_policy(
         output_dict = policy.forward(batch)
         # TODO(rcadene): policy.unnormalize_outputs(out_dict)
         loss = output_dict["loss"]
-    grad_scaler.scale(loss).backward()
 
-    # Unscale the graident of the optimzer's assigned params in-place **prior to gradient clipping**.
-    grad_scaler.unscale_(optimizer)
+    # NOTE: need to move the loss out of the tdmpc2 policy
+    if False:
+        grad_scaler.scale(loss).backward()
 
-    grad_norm = torch.nn.utils.clip_grad_norm_(
-        policy.parameters(),
-        grad_clip_norm,
-        error_if_nonfinite=False,
-    )
+        # Unscale the graident of the optimzer's assigned params in-place **prior to gradient clipping**.
+        grad_scaler.unscale_(optimizer)
 
-    # Optimizer's gradients are already unscaled, so scaler.step does not unscale them,
-    # although it still skips optimizer.step() if the gradients contain infs or NaNs.
-    with lock if lock is not None else nullcontext():
-        grad_scaler.step(optimizer)
-    # Updates the scale for next iteration.
-    grad_scaler.update()
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            policy.parameters(),
+            grad_clip_norm,
+            error_if_nonfinite=False,
+        )
 
-    optimizer.zero_grad()
+        # Optimizer's gradients are already unscaled, so scaler.step does not unscale them,
+        # although it still skips optimizer.step() if the gradients contain infs or NaNs.
+        with lock if lock is not None else nullcontext():
+            grad_scaler.step(optimizer)
+        # Updates the scale for next iteration.
+        grad_scaler.update()
 
-    if lr_scheduler is not None:
-        lr_scheduler.step()
+        optimizer.zero_grad()
 
-    if isinstance(policy, PolicyWithUpdate):
-        # To possibly update an internal buffer (for instance an Exponential Moving Average like in TDMPC).
-        policy.update()
+        if lr_scheduler is not None:
+            lr_scheduler.step()
 
+        if isinstance(policy, PolicyWithUpdate):
+            # To possibly update an internal buffer (for instance an Exponential Moving Average like in TDMPC).
+            policy.update()
+
+        info = {
+            "loss": loss.item(),
+            "grad_norm": float(grad_norm),
+            "lr": optimizer.param_groups[0]["lr"],
+            "update_s": time.perf_counter() - start_time,
+            **{k: v for k, v in output_dict.items() if k != "loss"},
+        }
     info = {
-        "loss": loss.item(),
-        "grad_norm": float(grad_norm),
-        "lr": optimizer.param_groups[0]["lr"],
         "update_s": time.perf_counter() - start_time,
-        **{k: v for k, v in output_dict.items() if k != "loss"},
+        **{k: v for k, v in output_dict.items()},
     }
     info.update({k: v for k, v in output_dict.items() if k not in info})
 
@@ -416,7 +423,7 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
         batch = next(dl_iter)
 
         if batch["observation.image"].shape[-1] != 64:
-            print(f"WARN: image shape is {batch['observation.image'].shape}. Scaling image.")
+            # print(f"WARN: image shape is {batch['observation.image'].shape}. Scaling image.")
             # from IPython import embed; embed()
             b, t, c, h, w = batch["observation.image"].shape
             batch["observation.image"] = nn.functional.interpolate(

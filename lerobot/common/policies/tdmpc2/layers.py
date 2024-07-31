@@ -76,7 +76,6 @@ class SimNorm(nn.Module):
     
     def forward(self, x):
         shp = x.shape
-        print(shp)
         x = x.view(*shp[:-1], -1, self.dim)
         x = F.softmax(x, dim=-1)
         return x.view(*shp)
@@ -130,7 +129,6 @@ def conv(in_shape, num_channels, act=None):
     Basic convolutional encoder for TD-MPC2 with raw image observations.
     4 layers of convolution with ReLU activations, followed by a linear layer.
     """
-    print(in_shape)
     assert in_shape[-1] == 64 # assumes rgb observations to be 64x64
     layers = [
         ShiftAug(), PixelPreprocess(),

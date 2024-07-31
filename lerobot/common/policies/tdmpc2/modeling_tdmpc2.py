@@ -45,6 +45,52 @@ from lerobot.common.policies.tdmpc2.configuration_tdmpc2 import TDMPC2Config
 from lerobot.common.policies.utils import get_device_from_parameters, populate_queues
 
 
+class RunningScale:
+    """Running trimmed scale estimator."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self._value = torch.ones(1, dtype=torch.float32, device=torch.device('cuda'))
+        self._percentiles = torch.tensor([5, 95], dtype=torch.float32, device=torch.device('cuda'))
+
+    def state_dict(self):
+        return dict(value=self._value, percentiles=self._percentiles)
+
+    def load_state_dict(self, state_dict):
+        self._value.data.copy_(state_dict['value'])
+        self._percentiles.data.copy_(state_dict['percentiles'])
+
+    @property
+    def value(self):
+        return self._value.cpu().item()
+
+    def _percentile(self, x):
+        x_dtype, x_shape = x.dtype, x.shape
+        x = x.view(x.shape[0], -1)
+        in_sorted, _ = torch.sort(x, dim=0)
+        positions = self._percentiles * (x.shape[0]-1) / 100
+        floored = torch.floor(positions)
+        ceiled = floored + 1
+        ceiled[ceiled > x.shape[0] - 1] = x.shape[0] - 1
+        weight_ceiled = positions-floored
+        weight_floored = 1.0 - weight_ceiled
+        d0 = in_sorted[floored.long(), :] * weight_floored[:, None]
+        d1 = in_sorted[ceiled.long(), :] * weight_ceiled[:, None]
+        return (d0+d1).view(-1, *x_shape[1:]).type(x_dtype)
+
+    def update(self, x):
+        percentiles = self._percentile(x.detach())
+        value = torch.clamp(percentiles[1] - percentiles[0], min=1.)
+        self._value.data.lerp_(value, self.cfg.tau)
+
+    def __call__(self, x, update=False):
+        if update:
+            self.update(x)
+        return x * (1/self.value)
+
+    def __repr__(self):
+        return f'RunningScale(S: {self.value})'
+
 class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
     """Implementation of TD-MPC2 learning + inference.
 
@@ -103,6 +149,17 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
             self.input_image_key = image_keys[0]
         if "observation.environment_state" in config.input_shapes:
             self._use_env_state = True
+
+        self.optim = torch.optim.Adam([
+            {'params': self.model._encoder.parameters(), 'lr': self.config.lr*self.config.enc_lr_scale},
+            {'params': self.model._dynamics.parameters()},
+            {'params': self.model._reward.parameters()},
+            {'params': self.model._Qs.parameters()},
+            {'params': self.model._task_emb.parameters() if self.config.multitask else []}
+        ], lr=self.config.lr)
+        self.pi_optim = torch.optim.Adam(self.model._pi.parameters(), lr=self.config.lr, eps=1e-5)
+
+        self.scale = RunningScale(self.config)
 
         self.reset()
 
@@ -190,7 +247,7 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
     # 	if task is not None:
     # 		task = torch.tensor([task], device=self.device)
     # 	z = self.model.encode(obs, task)
-    # 	if self.cfg.mpc:
+    # 	if self.config.mpc:
     # 		a = self.plan(z, t0=t0, eval_mode=eval_mode, task=task)
     # 	else:
     # 		a = self.model.pi(z, task)[int(not eval_mode)][0]
@@ -362,6 +419,7 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
 
         action = batch["action"]  # (t, b, action_dim)
         reward = batch["next.reward"]  # (t, b)
+        reward = reward.unsqueeze(-1)  # (t, b, 1)
         observations = {k: v for k, v in batch.items() if k.startswith("observation.")}
 
         # Apply random image augmentations.
@@ -381,166 +439,279 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
             "observation.image" if self._use_image else "observation.environment_state"
         ].shape[:2]
 
-        # Run latent rollout using the latent dynamics model and policy model.
-        # Note this has shape `horizon+1` because there are `horizon` actions and a current `z`. Each action
-        # gives us a next `z`.
-        batch_size = batch["index"].shape[0]
-        z_preds = torch.empty(horizon + 1, batch_size, self.config.latent_dim, device=device)
-        pred = self.model.encode(current_observation)
-        # from IPython import embed; embed()
-        z_preds[0] = pred
-        reward_preds = torch.empty_like(reward, device=device)
-        for t in range(horizon):
-            z_preds[t + 1], reward_preds[t] = self.model.latent_dynamics_and_reward(z_preds[t], action[t])
 
-        # Compute Q and V value predictions based on the latent rollout.
-        q_preds_ensemble = self.model.Qs(z_preds[:-1], action, return_type='all')  # (ensemble, horizon, batch)
-        info.update({"Q": q_preds_ensemble.mean().item()})
-
-        # Compute various targets with stopgrad.
+        # Compute targets
         with torch.no_grad():
-            # Latent state consistency targets.
-            z_targets = self.model_target.encode(next_observations)
-
+            next_z = self.model.encode(next_observations)
+            curr_z = self.model.encode(current_observation).unsqueeze(0) # TODO: not necessary to do the whole thing
             # get the next targets # _td_target in the original code
-            pi = self.model.pi(z_targets)[1]
+            pi = self.model.pi(next_z)[1]
             discount = self.config.discount
-            td_target = reward + discount * self.model_target.Qs(z_targets, pi, return_type='min', target=True)
-            # end td_target
 
-            # NOTE: JSS 7/24 go from here.
+            td_targets = reward + discount * self.model.Qs(next_z, pi, return_type='min', target=True)
 
-            q_targets = reward + self.config.discount * self.model.V(self.model.encode(next_observations))
-            # From eqn 3 of FOWM. These appear as Q(z, a). Here we call them v_targets to emphasize that we
-            # are using them to compute loss for V.
-            v_targets = self.model_target.Qs(z_preds[:-1].detach(), action, return_type='min')
+        # Prepare for update
+        self.optim.zero_grad(set_to_none=True)
+        self.model.train()
 
-        # Compute losses.
-        # Exponentially decay the loss weight with respect to the timestep. Steps that are more distant in the
-        # future have less impact on the loss. Note: unsqueeze will let us broadcast to (seq, batch).
-        temporal_loss_coeffs = torch.pow(
-            self.config.temporal_decay_coeff, torch.arange(horizon, device=device)
-        ).unsqueeze(-1)
-        # Compute consistency loss as MSE loss between latents predicted from the rollout and latents
-        # predicted from the (target model's) observation encoder.
-        consistency_loss = (
-            (
-                temporal_loss_coeffs
-                * F.mse_loss(z_preds[1:], z_targets, reduction="none").mean(dim=-1)
-                # `z_preds` depends on the current observation and the actions.
-                * ~batch["observation.state_is_pad"][0]
-                * ~batch["action_is_pad"]
-                # `z_targets` depends on the next observation.
-                * ~batch["observation.state_is_pad"][1:]
-            )
-            .sum(0)
-            .mean()
-        )
-        # Compute the reward loss as MSE loss between rewards predicted from the rollout and the dataset
-        # rewards.
-        reward_loss = (
-            (
-                temporal_loss_coeffs
-                * F.mse_loss(reward_preds, reward, reduction="none")
-                * ~batch["next.reward_is_pad"]
-                # `reward_preds` depends on the current observation and the actions.
-                * ~batch["observation.state_is_pad"][0]
-                * ~batch["action_is_pad"]
-            )
-            .sum(0)
-            .mean()
-        )
-        # Compute state-action value loss (TD loss) for all of the Q functions in the ensemble.
-        q_value_loss = (
-            (
-                temporal_loss_coeffs
-                * F.mse_loss(
-                    q_preds_ensemble,
-                    einops.repeat(q_targets, "t b -> e t b", e=q_preds_ensemble.shape[0]),
-                    reduction="none",
-                ).sum(0)  # sum over ensemble
-                # `q_preds_ensemble` depends on the first observation and the actions.
-                * ~batch["observation.state_is_pad"][0]
-                * ~batch["action_is_pad"]
-                # q_targets depends on the reward and the next observations.
-                * ~batch["next.reward_is_pad"]
-                * ~batch["observation.state_is_pad"][1:]
-            )
-            .sum(0)
-            .mean()
-        )
-        # Compute state value loss as in eqn 3 of FOWM.
-        diff = v_targets - v_preds
-        # Expectile loss penalizes:
-        #   - `v_preds <  v_targets` with weighting `expectile_weight`
-        #   - `v_preds >= v_targets` with weighting `1 - expectile_weight`
-        raw_v_value_loss = torch.where(
-            diff > 0, self.config.expectile_weight, (1 - self.config.expectile_weight)
-        ) * (diff**2)
-        v_value_loss = (
-            (
-                temporal_loss_coeffs
-                * raw_v_value_loss
-                # `v_targets` depends on the first observation and the actions, as does `v_preds`.
-                * ~batch["observation.state_is_pad"][0]
-                * ~batch["action_is_pad"]
-            )
-            .sum(0)
-            .mean()
+        # Latent rollout
+        zs = torch.empty(self.config.horizon+1, batch_size, self.config.latent_dim, device=device)
+        zs[0] = z = curr_z[0]
+        consistency_loss = 0
+        for t in range(self.config.horizon):
+            # from IPython import embed; embed()
+            x = torch.cat([z, action[t]], dim=-1)
+            z = self.model._dynamics(x)
+            consistency_loss += F.mse_loss(z, next_z[t]) * self.config.rho**t
+            zs[t+1] = z
+
+        # Predictions
+        _zs = zs[:-1]
+        # from IPython import embed; embed()
+        qs = self.model.Qs(_zs, action, return_type='all')
+        reward_preds = self.model._reward(torch.cat([_zs, action], dim=-1))
+        
+        # Compute losses
+        reward_loss, value_loss = 0, 0
+        # print(f"reward_preds: {reward_preds.shape}")
+        # print(f"reward: {reward.shape}")
+        # print(f"qs: {qs.shape}")
+        # print(f"td_targets: {td_targets.shape}")
+        for t in range(self.config.horizon):
+            reward_loss += soft_ce(reward_preds[t], reward[t], self.config).mean() * self.config.rho**t
+            for q in range(self.config.num_q):
+                value_loss += soft_ce(qs[q][t], td_targets[t], self.config).mean() * self.config.rho**t
+        consistency_loss *= (1/self.config.horizon)
+        reward_loss *= (1/self.config.horizon)
+        value_loss *= (1/(self.config.horizon * self.config.num_q))
+        total_loss = (
+            self.config.consistency_coef * consistency_loss +
+            self.config.reward_coef * reward_loss +
+            self.config.value_coef * value_loss
         )
 
-        # Calculate the advantage weighted regression loss for π as detailed in FOWM 3.1.
-        # We won't need these gradients again so detach.
-        z_preds = z_preds.detach()
-        # Use stopgrad for the advantage calculation.
+        # Update model
+        total_loss.backward()
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip_norm)
+        self.optim.step()
+
+        # Update policy
+        """
+        Update policy using a sequence of latent states.
+        
+        Args:
+            zs (torch.Tensor): Sequence of latent states.
+            task (torch.Tensor): Task index (only used for multi-task experiments).
+
+        Returns:
+            float: Loss of the policy update.
+        """
+        zs_for_pi = zs.detach()
+        self.pi_optim.zero_grad(set_to_none=True)
+        self.model.track_q_grad(False)
+        _, pis, log_pis, _ = self.model.pi(zs_for_pi)
+        qs = self.model.Qs(zs_for_pi, pis, return_type='avg')
+        self.scale.update(qs[0])
+        qs = self.scale(qs)
+
+        # Loss is a weighted sum of Q-values
+        rho = torch.pow(self.config.rho, torch.arange(len(qs), device=device))
+        pi_loss = ((self.config.entropy_coef * log_pis - qs).mean(dim=(1,2)) * rho).mean()
+        pi_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model._pi.parameters(), self.config.grad_clip_norm)
+        self.pi_optim.step()
+        self.model.track_q_grad(True)
+        pi_loss = pi_loss.item()
+
+        # Update target Q-functions
+        """
+        Soft-update target Q-networks using Polyak averaging.
+        """
         with torch.no_grad():
-            advantage = self.model_target.Qs(z_preds[:-1], action, return_type='min') - self.model.V(
-                z_preds[:-1]
-            )
-            info["advantage"] = advantage[0]
-            # (t, b)
-            exp_advantage = torch.clamp(torch.exp(advantage * self.config.advantage_scaling), max=100.0)
-        action_preds = self.model.pi(z_preds[:-1])  # (t, b, a)
-        # Calculate the MSE between the actions and the action predictions.
-        # Note: FOWM's original code calculates the log probability (wrt to a unit standard deviation
-        # gaussian) and sums over the action dimension. Computing the (negative) log probability amounts to
-        # multiplying the MSE by 0.5 and adding a constant offset (the log(2*pi)/2 term, times the action
-        # dimension). Here we drop the constant offset as it doesn't change the optimization step, and we drop
-        # the 0.5 as we instead make a configuration parameter for it (see below where we compute the total
-        # loss).
-        mse = F.mse_loss(action_preds, action, reduction="none").sum(-1)  # (t, b)
-        # NOTE: The original implementation does not take the sum over the temporal dimension like with the
-        # other losses.
-        # TODO(alexander-soare): Take the sum over the temporal dimension and check that training still works
-        # as well as expected.
-        pi_loss = (
-            exp_advantage
-            * mse
-            * temporal_loss_coeffs
-            # `action_preds` depends on the first observation and the actions.
-            * ~batch["observation.state_is_pad"][0]
-            * ~batch["action_is_pad"]
-        ).mean()
+            for p, p_target in zip(self.model._Qs.parameters(), self.model._target_Qs.parameters()):
+                p_target.data.lerp_(p.data, self.config.tau)
 
-        loss = (
-            self.config.consistency_coeff * consistency_loss
-            + self.config.reward_coeff * reward_loss
-            + self.config.value_coeff * q_value_loss
-            + self.config.value_coeff * v_value_loss
-            + self.config.pi_coeff * pi_loss
-        )
+        # Return training statistics
+        self.model.eval()
+        return {
+            "consistency_loss": float(consistency_loss.mean().item()),
+            "reward_loss": float(reward_loss.mean().item()),
+            "value_loss": float(value_loss.mean().item()),
+            "pi_loss": pi_loss,
+            "loss": float(total_loss.mean().item()),
+            "grad_norm": float(grad_norm),
+            "pi_scale": float(self.scale.value),
+            "lr": self.optim.param_groups[0]['lr']
+        }
 
-        info.update(
-            {
-                "consistency_loss": consistency_loss.item(),
-                "reward_loss": reward_loss.item(),
-                "Q_value_loss": q_value_loss.item(),
-                "V_value_loss": v_value_loss.item(),
-                "pi_loss": pi_loss.item(),
-                "loss": loss,
-                "sum_loss": loss.item() * self.config.horizon,
-            }
-        )
+        
+        # # Compute various targets with stopgrad.
+        # with torch.no_grad():
+        #     # Latent state consistency targets.
+        #     z_targets = self.model.encode(next_observations)
+
+        #     # get the next targets # _td_target in the original code
+        #     pi = self.model.pi(z_targets)[1]
+        #     discount = self.config.discount
+
+        #     td_target = reward + discount * self.model.Qs(z_targets, pi, return_type='min', target=True)
+        #     # end td_target
+
+        #     # NOTE: JSS 7/24 go from here.
+        #     # from IPython import embed; embed()
+
+        #     q_targets = td_target
+        #     # q_targets = reward + self.config.discount * self.model.V(self.model.encode(next_observations))
+        #     # From eqn 3 of FOWM. These appear as Q(z, a). Here we call them v_targets to emphasize that we
+        #     # are using them to compute loss for V.
+        #     # v_targets = self.model_target.Qs(z_preds[:-1].detach(), action, return_type='min')
+
+        # # Run latent rollout using the latent dynamics model and policy model.
+        # # Note this has shape `horizon+1` because there are `horizon` actions and a current `z`. Each action
+        # # gives us a next `z`.
+        # batch_size = batch["index"].shape[0]
+        # z_preds = torch.empty(horizon + 1, batch_size, self.config.latent_dim, device=device)
+        # pred = self.model.encode(current_observation)
+        # z_preds[0] = pred
+
+        # # Compute Q and V value predictions based on the latent rollout.
+        # q_preds_ensemble = self.model.Qs(z_preds[:-1], action, return_type='all')  # (ensemble, horizon, batch)
+        # info.update({"Q": q_preds_ensemble.mean().item()})
+
+        # # reward_preds = torch.empty_like(reward, device=device)
+        # # consistency_loss = 0
+        # reward_preds = torch.empty(horizon, batch_size, self.config.num_bins, device=device)
+        # for t in range(horizon):
+        #     x = torch.cat([z_preds[t], action[t]], dim=-1)
+        #     z = self.model._dynamics(x)
+        #     # consistency_loss += F.mse_loss(z, z_targets[t]) * self.config.rho ** t
+        #     z_preds[t+1] = z
+        #     reward_preds[t] = self.model._reward(x)
+        #     # z_preds[t + 1], reward_preds[t] = self.model.latent_dynamics_and_reward(z_preds[t], action[t])
+
+
+        # # Compute losses.
+        # # Exponentially decay the loss weight with respect to the timestep. Steps that are more distant in the
+        # # future have less impact on the loss. Note: unsqueeze will let us broadcast to (seq, batch).
+        # # TODO: increase efficiency by switching from loop to this method.
+        # temporal_loss_coeffs = torch.pow(
+        #     self.config.temporal_decay_coeff, torch.arange(horizon, device=device)
+        # ).unsqueeze(-1)
+        # # Compute consistency loss as MSE loss between latents predicted from the rollout and latents
+        # # predicted from the (target model's) observation encoder.
+        # consistency_loss = (
+        #     (
+        #         temporal_loss_coeffs
+        #         * F.mse_loss(z_preds[1:], z_targets, reduction="none").mean(dim=-1)
+        #         # `z_preds` depends on the current observation and the actions.
+        #         * ~batch["observation.state_is_pad"][0]
+        #         * ~batch["action_is_pad"]
+        #         # `z_targets` depends on the next observation.
+        #         * ~batch["observation.state_is_pad"][1:]
+        #     )
+        #     .sum(0)
+        #     .mean()
+        # )
+        # # Compute the reward loss as MSE loss between rewards predicted from the rollout and the dataset
+        # # rewards.
+        # print(f"reward_preds shape: {reward_preds.shape}")
+        # print(f"reward shape: {reward.shape}")
+        # reward_loss = (
+        #     (
+        #         temporal_loss_coeffs
+        #         * soft_ce(reward_preds, reward, self.config)
+        #         * ~batch["next.reward_is_pad"]
+        #         # `reward_preds` depends on the current observation and the actions.
+        #         * ~batch["observation.state_is_pad"][0]
+        #         * ~batch["action_is_pad"]
+        #     )
+        #     .sum(0)
+        #     .mean()
+        # )
+        # # Compute state-action value loss (TD loss) for all of the Q functions in the ensemble.
+        # q_value_loss = (
+        #     (
+        #         temporal_loss_coeffs
+        #         * soft_ce(
+        #             q_preds_ensemble,
+        #             einops.repeat(q_targets, "t b -> e t b", e=q_preds_ensemble.shape[0]),
+        #             self.config,
+        #         ).sum(0)  # sum over ensemble
+        #         # `q_preds_ensemble` depends on the first observation and the actions.
+        #         * ~batch["observation.state_is_pad"][0]
+        #         * ~batch["action_is_pad"]
+        #         # q_targets depends on the reward and the next observations.
+        #         * ~batch["next.reward_is_pad"]
+        #         * ~batch["observation.state_is_pad"][1:]
+        #     )
+        #     .sum(0)
+        #     .mean()
+        # )
+
+        # # Calculate the advantage weighted regression loss for π as detailed in FOWM 3.1.
+        # # We won't need these gradients again so detach.
+        # z_preds = z_preds.detach()
+        # # Use stopgrad for the advantage calculation.
+        # with torch.no_grad():
+        #     advantage = self.model_target.Qs(z_preds[:-1], action, return_type='min') - self.model.V(
+        #         z_preds[:-1]
+        #     )
+        #     info["advantage"] = advantage[0]
+        #     # (t, b)
+        #     exp_advantage = torch.clamp(torch.exp(advantage * self.config.advantage_scaling), max=100.0)
+        # action_preds = self.model.pi(z_preds[:-1])  # (t, b, a)
+        # # Calculate the MSE between the actions and the action predictions.
+        # # Note: FOWM's original code calculates the log probability (wrt to a unit standard deviation
+        # # gaussian) and sums over the action dimension. Computing the (negative) log probability amounts to
+        # # multiplying the MSE by 0.5 and adding a constant offset (the log(2*pi)/2 term, times the action
+        # # dimension). Here we drop the constant offset as it doesn't change the optimization step, and we drop
+        # # the 0.5 as we instead make a configuration parameter for it (see below where we compute the total
+        # # loss).
+        # mse = F.mse_loss(action_preds, action, reduction="none").sum(-1)  # (t, b)
+        # # NOTE: The original implementation does not take the sum over the temporal dimension like with the
+        # # other losses.
+        # # TODO(alexander-soare): Take the sum over the temporal dimension and check that training still works
+        # # as well as expected.
+        # pi_loss = (
+        #     exp_advantage
+        #     * mse
+        #     * temporal_loss_coeffs
+        #     # `action_preds` depends on the first observation and the actions.
+        #     * ~batch["observation.state_is_pad"][0]
+        #     * ~batch["action_is_pad"]
+        # ).mean()
+
+        # model_loss = (
+        #     self.config.consistency_coeff * consistency_loss
+        #     + self.config.reward_coeff * reward_loss
+        #     + self.config.value_coeff * q_value_loss
+        #     + self.config.pi_coeff * pi_loss
+        # )
+
+        # self.optim.zero_grad()
+        # model_loss.backward()
+        # grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip_norm)
+        # self.optim.step()
+
+        # self.pi_optim.zero_grad()
+        # agent_loss = self.config.pi_coeff * pi_loss
+        # agent_loss.backward()
+        # grad_norm = torch.nn.utils.clip_grad_norm_(self.model._pi.parameters(), self.config.grad_clip_norm)
+        # self.pi_optim.step()
+
+
+        # info.update(
+        #     {
+        #         "consistency_loss": consistency_loss.item(),
+        #         "reward_loss": reward_loss.item(),
+        #         "Q_value_loss": q_value_loss.item(),
+        #         "pi_loss": pi_loss.item(),
+        #         "model_loss": model_loss,
+        #         "policy_loss": agent_loss,
+        #         "sum_loss_model": model_loss.item() * self.config.horizon,
+        #         "sum_loss_pi": agent_loss.item() * self.config.horizon,
+        #     }
+        # )
 
         # Undo (b, t) -> (t, b).
         for key in batch:
@@ -557,37 +728,44 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
         update_ema_parameters(self.model_target, self.model, self.config.target_model_momentum)
 
 # lifted from Nicklas' code
+
+def soft_ce(pred, target, cfg):
+    """Computes the cross entropy loss between predictions and soft targets."""
+    pred = F.log_softmax(pred, dim=-1)
+    target = two_hot(target, cfg)
+    return -(target * pred).sum(-1, keepdim=True)
+
 @torch.jit.script
 def log_std(x, low, dif):
-	return low + 0.5 * dif * (torch.tanh(x) + 1)
+    return low + 0.5 * dif * (torch.tanh(x) + 1)
 
 @torch.jit.script
 def _gaussian_residual(eps, log_std):
-	return -0.5 * eps.pow(2) - log_std
+    return -0.5 * eps.pow(2) - log_std
 
 @torch.jit.script
 def _gaussian_logprob(residual):
-	return residual - 0.5 * torch.log(2 * torch.pi)
+    return residual - 0.5 * torch.log(2 * torch.pi)
 
 def gaussian_logprob(eps, log_std, size=None):
-	"""Compute Gaussian log probability."""
-	residual = _gaussian_residual(eps, log_std).sum(-1, keepdim=True)
-	if size is None:
-		size = eps.size(-1)
-	return _gaussian_logprob(residual) * size
+    """Compute Gaussian log probability."""
+    residual = _gaussian_residual(eps, log_std).sum(-1, keepdim=True)
+    if size is None:
+        size = eps.size(-1)
+    return _gaussian_logprob(residual) * size
 
 
 @torch.jit.script
 def _squash(pi):
-	return torch.log(F.relu(1 - pi.pow(2)) + 1e-6)
+    return torch.log(F.relu(1 - pi.pow(2)) + 1e-6)
 
 
 def squash(mu, pi, log_pi):
-	"""Apply squashing function."""
-	mu = torch.tanh(mu)
-	pi = torch.tanh(pi)
-	log_pi -= _squash(pi).sum(-1, keepdim=True)
-	return mu, pi, log_pi
+    """Apply squashing function."""
+    mu = torch.tanh(mu)
+    pi = torch.tanh(pi)
+    log_pi -= _squash(pi).sum(-1, keepdim=True)
+    return mu, pi, log_pi
 
 @torch.jit.script
 def symexp(x):
@@ -596,6 +774,40 @@ def symexp(x):
     Adapted from https://github.com/danijar/dreamerv3.
     """
     return torch.sign(x) * (torch.exp(torch.abs(x)) - 1)
+
+@torch.jit.script
+def symlog(x):
+    """
+    Symmetric logarithmic function.
+    Adapted from https://github.com/danijar/dreamerv3.
+    """
+    return torch.sign(x) * torch.log(1 + torch.abs(x))
+
+@torch.jit.script
+def log_std_fn(x, low, dif):
+    return low + 0.5 * dif * (torch.tanh(x) + 1)
+
+def two_hot(x, cfg):
+    """Converts a batch of scalars to soft two-hot encoded targets for discrete regression."""
+    if cfg.num_bins == 0:
+        return x
+    elif cfg.num_bins == 1:
+        return symlog(x)
+    x = torch.clamp(symlog(x), cfg.vmin, cfg.vmax).squeeze(1)
+    bin_idx = torch.floor((x - cfg.vmin) / cfg.bin_size).long()
+    bin_offset = ((x - cfg.vmin) / cfg.bin_size - bin_idx.float()).unsqueeze(-1)
+    soft_two_hot = torch.zeros(x.size(0), cfg.num_bins, device=x.device)
+
+    # print("x shape:", x.shape)
+    # print("bin_idx shape:", bin_idx.shape)
+    # print("bin_offset shape:", bin_offset.shape)
+    # print("soft_two_hot shape:", soft_two_hot.shape)
+    
+    # from IPython import embed; embed()
+
+    soft_two_hot.scatter_(1, bin_idx.unsqueeze(1), 1 - bin_offset)
+    soft_two_hot.scatter_(1, (bin_idx.unsqueeze(1) + 1) % cfg.num_bins, bin_offset)
+    return soft_two_hot
 
 def two_hot_inv(x, cfg):
     """Converts a batch of soft two-hot encoded vectors to scalars."""
@@ -618,15 +830,17 @@ class TDMPC2TOLD(nn.Module):
     def __init__(self, config: TDMPC2Config):
         super().__init__()
         self.config = config
+
+        self.config.bin_size = (config.vmax - config.vmin) / (config.num_bins-1) # Bin size for discrete regression
+    
+
         action_dim = config.output_shapes["action"][0]
-        # TODO: move to config
-        dropout = 0.01; num_q = 5
 
         self._encoder = TDMPC2ObservationEncoder(config)
         self._dynamics = layers.mlp(config.latent_dim + action_dim, 2*[config.mlp_dim], config.latent_dim, act=layers.SimNorm(config))
         self._reward = layers.mlp(config.latent_dim + action_dim, 2*[config.mlp_dim], max(config.num_bins, 1))
         self._pi = layers.mlp(config.latent_dim, 2*[config.mlp_dim], 2*action_dim)
-        self._Qs = layers.Ensemble([layers.mlp(config.latent_dim + action_dim, 2*[config.mlp_dim], max(config.num_bins, 1), dropout=dropout) for _ in range(num_q)])
+        self._Qs = layers.Ensemble([layers.mlp(config.latent_dim + action_dim, 2*[config.mlp_dim], max(config.num_bins, 1), dropout=config.dropout) for _ in range(config.num_q)])
         
         
         self.apply(self.weight_init)
@@ -638,6 +852,17 @@ class TDMPC2TOLD(nn.Module):
         log_std_min, log_std_max = -10, 2 # TODO: add to config
         self.log_std_min = torch.tensor(log_std_min)
         self.log_std_dif = torch.tensor(log_std_max) - self.log_std_min
+    
+    def track_q_grad(self, mode=True):
+        """
+        Enables/disables gradient tracking of Q-networks.
+        Avoids unnecessary computation during policy optimization.
+        This method also enables/disables gradients for task embeddings.
+        """
+        for p in self._Qs.parameters():
+            p.requires_grad_(mode)
+        if self.config.multitask:
+            raise NotImplementedError("Multitask not implemented for TOLD yet.")
 
     def weight_init(self, m): # lifted from Nicklas' code
         """Custom weight initialization for TD-MPC2."""
@@ -698,7 +923,7 @@ class TDMPC2TOLD(nn.Module):
 
         # Gaussian policy prior
         mu, log_std = self._pi(z).chunk(2, dim=-1)
-        log_std = log_std(log_std, self.log_std_min, self.log_std_dif)
+        log_std = log_std_fn(log_std, self.log_std_min, self.log_std_dif)
         eps = torch.randn_like(mu)
 
         # No masking

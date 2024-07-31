@@ -106,6 +106,9 @@ class TDMPC2Config:
     num_bins = 101
     vmin = -10
     vmax = +10
+    rho: float = 0.5
+    tau: float = 0.01
+
 
     # Input / output structure.
     n_action_repeats: int = 2
@@ -139,6 +142,12 @@ class TDMPC2Config:
     mlp_dim: int = 512
     # Reinforcement learning.
     discount: float = 0.9
+    lr: float = 3e-4
+    enc_lr_scale: float = 0.3
+
+    num_q: int = 5
+    dropout: float = 0.01
+
 
     # Inference.
     use_mpc: bool = True
@@ -153,11 +162,16 @@ class TDMPC2Config:
     gaussian_mean_momentum: float = 0.1
 
     # Training and loss computation.
+    grad_clip_norm: float = 20
+
     max_random_shift_ratio: float = 0.0476
     # Loss coefficients.
-    reward_coeff: float = 0.5
+    consistency_coef: float = 20
+    entropy_coef: float = 1e-4
+
+    reward_coef: float = 0.1
     expectile_weight: float = 0.9
-    value_coeff: float = 0.1
+    value_coef: float = 0.1
     consistency_coeff: float = 20.0
     advantage_scaling: float = 3.0
     pi_coeff: float = 0.5
