@@ -161,6 +161,8 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
 
         self.scale = RunningScale(self.config)
 
+        self.queue_keys = None
+
         self.reset()
 
     def reset(self):
@@ -190,9 +192,11 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
 
         self._queues = populate_queues(self._queues, batch)
 
+        if self.queue_keys is None: self.queue_keys = [k for k in batch if k in self._queues]
+
         # When the action queue is depleted, populate it again by querying the policy.
         if len(self._queues["action"]) == 0:
-            batch = {key: torch.stack(list(self._queues[key]), dim=1) for key in batch}
+            batch = {key: torch.stack(list(self._queues[key]), dim=1) for key in self.queue_keys}
 
             # Remove the time dimensions as it is not handled yet.
             for key in batch:
@@ -205,7 +209,9 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
                 encode_keys.append("observation.image")
             if self._use_env_state:
                 encode_keys.append("observation.environment_state")
-            encode_keys.append("observation.state")
+
+            if False: # hardcoded for initial tdmpc2 impl
+                encode_keys.append("observation.state")
             z = self.model.encode({k: batch[k] for k in encode_keys})
 
             if self.config.use_mpc:  # noqa: SIM108
@@ -279,7 +285,7 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
             for t in range(self.config.horizon):
                 # Note: Adding a small amount of noise here doesn't hurt during inference and may even be
                 # helpful for CEM.
-                pi_actions[t] = self.model.pi(_z)
+                pi_actions[t] = self.model.pi_action(_z)
                 _z = self.model.latent_dynamics(_z, pi_actions[t])
 
         # In the CEM loop we will need this for a call to estimate_value with the gaussian sampled
@@ -310,8 +316,9 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
 
             # Compute elite actions.
             actions = torch.cat([gaussian_actions, pi_actions], dim=1)
-            value = self.estimate_value(z, actions).nan_to_num_(0)
+            value = self.estimate_value(z, actions).nan_to_num_(0).squeeze(-1)
             elite_idxs = torch.topk(value, self.config.n_elites, dim=0).indices  # (n_elites, batch)
+            # from IPython import embed; embed()
             elite_value = value.take_along_dim(elite_idxs, dim=0)  # (n_elites, batch)
             # (horizon, n_elites, batch, action_dim)
             elite_actions = actions.take_along_dim(einops.rearrange(elite_idxs, "n b -> 1 n b 1"), dim=1)
@@ -347,55 +354,67 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
 
         return actions
 
-    @torch.no_grad() # TODO: update to tdmpc2
-    def estimate_value(self, z: Tensor, actions: Tensor):
-        """Estimates the value of a trajectory as per eqn 4 of the FOWM paper.
+    # @torch.no_grad() # TODO: update to tdmpc2
+    # def estimate_value(self, z: Tensor, actions: Tensor):
+        # """Estimates the value of a trajectory as per eqn 4 of the FOWM paper.
+        # Args:
+        #     z: (batch, latent_dim) tensor of initial latent states.
+        #     actions: (horizon, batch, action_dim) tensor of action trajectories.
+        # Returns:
+        #     (batch,) tensor of values.
+        # """
+        # # Initialize return and running discount factor.
+        # G, running_discount = 0, 1
+        # # Iterate over the actions in the trajectory to simulate the trajectory using the latent dynamics
+        # # model. Keep track of return.
+        # for t in range(actions.shape[0]):
+        #     # We will compute the reward in a moment. First compute the uncertainty regularizer from eqn 4
+        #     # of the FOWM paper.
+        #     if self.config.uncertainty_regularizer_coeff > 0:
+        #         regularization = -(
+        #             self.config.uncertainty_regularizer_coeff * self.model.Qs(z, actions[t], return_type="all").std(0)
+        #         )
+        #     else:
+        #         regularization = 0
+        #     # Estimate the next state (latent) and reward.
+        #     z, reward = self.model.latent_dynamics_and_reward(z, actions[t])
+        #     # Update the return and running discount.
+        #     G += running_discount * (reward + regularization)
+        #     running_discount *= self.config.discount
+        # # Add the estimated value of the final state (using the minimum for a conservative estimate).
+        # # Do so by predicting the next action, then taking a minimum over the ensemble of state-action value
+        # # estimators.
+        # # Note: This small amount of added noise seems to help a bit at inference time as observed by success
+        # # metrics over 50 episodes of xarm_lift_medium_replay.
+        # next_action = self.model.pi_action(z)  # (batch, action_dim)
 
-        Args:
-            z: (batch, latent_dim) tensor of initial latent states.
-            actions: (horizon, batch, action_dim) tensor of action trajectories.
-        Returns:
-            (batch,) tensor of values.
-        """
-        # Initialize return and running discount factor.
-        G, running_discount = 0, 1
-        # Iterate over the actions in the trajectory to simulate the trajectory using the latent dynamics
-        # model. Keep track of return.
-        for t in range(actions.shape[0]):
-            # We will compute the reward in a moment. First compute the uncertainty regularizer from eqn 4
-            # of the FOWM paper.
-            if self.config.uncertainty_regularizer_coeff > 0:
-                regularization = -(
-                    self.config.uncertainty_regularizer_coeff * self.model.Qs(z, actions[t], return_type="all").std(0)
-                )
-            else:
-                regularization = 0
-            # Estimate the next state (latent) and reward.
-            z, reward = self.model.latent_dynamics_and_reward(z, actions[t])
-            # Update the return and running discount.
-            G += running_discount * (reward + regularization)
-            running_discount *= self.config.discount
-        # Add the estimated value of the final state (using the minimum for a conservative estimate).
-        # Do so by predicting the next action, then taking a minimum over the ensemble of state-action value
-        # estimators.
-        # Note: This small amount of added noise seems to help a bit at inference time as observed by success
-        # metrics over 50 episodes of xarm_lift_medium_replay.
-        next_action = self.model.pi(z)  # (batch, action_dim)
-        terminal_values = self.model.Qs(z, next_action, return_type='all')  # (ensemble, batch)
-        # Randomly choose 2 of the Qs for terminal value estimation (as in App C. of the FOWM paper).
-        if self.config.q_ensemble_size > 2:
-            G += (
-                running_discount
-                * torch.min(terminal_values[torch.randint(0, self.config.q_ensemble_size, size=(2,))], dim=0)[
-                    0
-                ]
-            )
-        else:
-            G += running_discount * torch.min(terminal_values, dim=0)[0]
-        # Finally, also regularize the terminal value.
-        if self.config.uncertainty_regularizer_coeff > 0:
-            G -= running_discount * self.config.uncertainty_regularizer_coeff * terminal_values.std(0)
-        return G
+        # terminal_values = self.model.Qs(z, next_action, return_type='all')  # (ensemble, batch)
+        # # Randomly choose 2 of the Qs for terminal value estimation (as in App C. of the FOWM paper).
+        # if self.config.q_ensemble_size > 2:
+        #     G += (
+        #         running_discount
+        #         * torch.min(terminal_values[torch.randint(0, self.config.q_ensemble_size, size=(2,))], dim=0)[
+        #             0
+        #         ]
+        #     )
+        # else:
+        #     G += running_discount * torch.min(terminal_values, dim=0)[0]
+        # # Finally, also regularize the terminal value.
+        # if self.config.uncertainty_regularizer_coeff > 0:
+        #     G -= running_discount * self.config.uncertainty_regularizer_coeff * terminal_values.std(0)
+        # return G
+
+    @torch.no_grad()# from nicklas
+    def estimate_value(self, z, actions):
+        """Estimate value of a trajectory starting at latent state z and executing given actions."""
+        G, discount = 0, 1
+        for t in range(self.config.horizon):
+            reward = two_hot_inv(self.model._reward(torch.cat([z, actions[t]], dim=-1)), self.config)
+            z = self.model.next(z, actions[t])
+            G += discount * reward
+            discount *= self.config.discount
+        return G + discount * self.model.Qs(z, self.model.pi(z)[1], return_type='avg')
+
 
     def forward(self, batch: dict[str, Tensor]) -> dict[str, Tensor | float]:
         """Run the batch through the model and compute the loss.
@@ -459,7 +478,6 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
         zs[0] = z = curr_z[0]
         consistency_loss = 0
         for t in range(self.config.horizon):
-            # from IPython import embed; embed()
             x = torch.cat([z, action[t]], dim=-1)
             z = self.model._dynamics(x)
             consistency_loss += F.mse_loss(z, next_z[t]) * self.config.rho**t
@@ -467,7 +485,6 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
 
         # Predictions
         _zs = zs[:-1]
-        # from IPython import embed; embed()
         qs = self.model.Qs(_zs, action, return_type='all')
         reward_preds = self.model._reward(torch.cat([_zs, action], dim=-1))
         
@@ -558,7 +575,6 @@ class TDMPC2Policy(nn.Module, PyTorchModelHubMixin):
         #     # end td_target
 
         #     # NOTE: JSS 7/24 go from here.
-        #     # from IPython import embed; embed()
 
         #     q_targets = td_target
         #     # q_targets = reward + self.config.discount * self.model.V(self.model.encode(next_observations))
@@ -912,6 +928,8 @@ class TDMPC2TOLD(nn.Module):
         """
         x = torch.cat([z, a], dim=-1)
         return self._dynamics(x)
+    
+    def next(self, z: Tensor, a: Tensor) -> Tensor: return self.latent_dynamics(z, a) # just a wrapper
 
     def pi(self, z): # lifted from Nicklas' code
         """
@@ -934,6 +952,8 @@ class TDMPC2TOLD(nn.Module):
         mu, pi, log_pi = squash(mu, pi, log_pi)
 
         return mu, pi, log_pi, log_std
+    
+    def pi_action(self, z): return self.pi(z)[1] # just return the action
     
     def Qs(self, z: Tensor, a: Tensor, return_type: str = 'min', target: bool = False) -> Tensor:  # noqa: N802
         """Predict state-action value for all of the learned Q functions.

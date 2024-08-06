@@ -73,6 +73,12 @@ from lerobot.common.utils.io_utils import write_video
 from lerobot.common.utils.utils import get_safe_torch_device, init_hydra_config, init_logging, set_global_seed
 
 
+def wrap_img_observation(observation: np.ndarray, info: dict) -> dict:
+    return {
+        "pixels": observation,
+        "agent_pos": info["pos_agent"][0]
+    }
+
 def rollout(
     env: gym.vector.VectorEnv,
     policy: Policy,
@@ -120,6 +126,7 @@ def rollout(
     policy.reset()
 
     observation, info = env.reset(seed=seeds)
+
     if render_callback is not None:
         render_callback(env)
 
@@ -141,7 +148,11 @@ def rollout(
     )
     while not np.all(done):
         # Numpy array to tensor and changing dictionary keys to LeRobot policy format.
+        if type(observation) is not dict: # assumed to be pusht image observation
+            observation = wrap_img_observation(observation, info)
+            
         observation = preprocess_observation(observation)
+
         if return_observations:
             all_observations.append(deepcopy(observation))
 
