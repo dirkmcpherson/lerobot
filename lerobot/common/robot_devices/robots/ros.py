@@ -1,7 +1,8 @@
-from .utils import Robot
+from lerobot.common.robot_devices.robots.utils import Robot
 from lerobot.common.robot_devices.cameras.utils import Camera
 from dataclasses import dataclass, field, replace
 import torch
+import rospy
 
 @dataclass
 class RosRobotConfig:
@@ -10,7 +11,7 @@ class RosRobotConfig:
 
 class RosRobot(Robot):
     def __init__(self,
-                 config: RosRobotConfig | None = None,
+                 config = None,
                  **kwargs) -> None:
         super().__init__()
         if config is None:
@@ -58,3 +59,8 @@ class RosRobot(Robot):
         # Command the robot to take the action
         return success
 
+if __name__ == '__main__':
+    from lerobot.common.robot_devices.cameras.opencv import OpenCVCamera
+    robot = RosRobot(cameras={
+        "top": OpenCVCamera(0, fps=30, width=640, height=480)
+    })
