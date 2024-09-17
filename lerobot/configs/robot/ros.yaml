@@ -1,5 +1,4 @@
 _target_: lerobot.common.robot_devices.robots.ros.RosRobot
-calibration_path: None
 cameras:
   top:
     _target_: lerobot.common.robot_devices.cameras.opencv.OpenCVCamera

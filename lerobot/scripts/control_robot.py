@@ -190,19 +190,20 @@ def log_control_info(robot, dt_s, episode_index=None, frame_index=None, fps=None
     # total step time displayed in milliseconds and its frequency
     log_dt("dt", dt_s)
 
-    for name in robot.leader_arms:
-        key = f"read_leader_{name}_pos_dt_s"
-        if key in robot.logs:
-            log_dt("dtRlead", robot.logs[key])
+    if hasattr(robot, "leader_arms"):
+        for name in robot.leader_arms:
+            key = f"read_leader_{name}_pos_dt_s"
+            if key in robot.logs:
+                log_dt("dtRlead", robot.logs[key])
 
-    for name in robot.follower_arms:
-        key = f"write_follower_{name}_goal_pos_dt_s"
-        if key in robot.logs:
-            log_dt("dtWfoll", robot.logs[key])
+        for name in robot.follower_arms:
+            key = f"write_follower_{name}_goal_pos_dt_s"
+            if key in robot.logs:
+                log_dt("dtWfoll", robot.logs[key])
 
-        key = f"read_follower_{name}_pos_dt_s"
-        if key in robot.logs:
-            log_dt("dtRfoll", robot.logs[key])
+            key = f"read_follower_{name}_pos_dt_s"
+            if key in robot.logs:
+                log_dt("dtRfoll", robot.logs[key])
 
     for name in robot.cameras:
         key = f"read_camera_{name}_dt_s"
@@ -338,6 +339,8 @@ def record(
     if not robot.is_connected:
         robot.connect()
 
+    robot.init_teleop()
+
     local_dir = Path(root) / repo_id
     if local_dir.exists() and force_override:
         shutil.rmtree(local_dir)
@@ -408,6 +411,8 @@ def record(
         # override fps using policy fps
         fps = hydra_cfg.env.fps
 
+    # print("before warmup")
+
     # Execute a few seconds without recording data, to give times
     # to the robot devices to connect and start synchronizing.
     timestamp = 0
@@ -426,19 +431,22 @@ def record(
         else:
             observation = robot.capture_observation()
 
-        if not is_headless():
-            image_keys = [key for key in observation if "image" in key]
-            for key in image_keys:
-                cv2.imshow(key, cv2.cvtColor(observation[key].numpy(), cv2.COLOR_RGB2BGR))
-            cv2.waitKey(1)
+        # if not is_headless():
+        #     image_keys = [key for key in observation if "image" in key]
+        #     for key in image_keys:
+        #         cv2.imshow(key, observation[key].numpy())
+        #     cv2.waitKey(1)
 
         dt_s = time.perf_counter() - start_loop_t
+        # print(f"Waiting for {1 / (fps - dt_s)}")
         busy_wait(1 / fps - dt_s)
 
         dt_s = time.perf_counter() - start_loop_t
         log_control_info(robot, dt_s, fps=fps)
 
         timestamp = time.perf_counter() - start_warmup_t
+        # print(f"warmup {timestamp:1.2f}")
+
 
     # Save images using threads to reach high fps (30 and more)
     # Using `with` to exist smoothly if an execption is raised.
@@ -447,7 +455,7 @@ def record(
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_image_writers) as executor:
         # Start recording all episodes
         while episode_index < num_episodes:
-            logging.info(f"Recording episode {episode_index}")
+            print(f"Recording episode {episode_index}")
             say(f"Recording episode {episode_index}")
             ep_dict = {}
             frame_index = 0
@@ -471,11 +479,11 @@ def record(
                         )
                     ]
 
-                if not is_headless():
-                    image_keys = [key for key in observation if "image" in key]
-                    for key in image_keys:
-                        cv2.imshow(key, cv2.cvtColor(observation[key].numpy(), cv2.COLOR_RGB2BGR))
-                    cv2.waitKey(1)
+                # if not is_headless():
+                #     image_keys = [key for key in observation if "image" in key]
+                #     for key in image_keys:
+                #         cv2.imshow(key, cv2.cvtColor(observation[key].numpy(), cv2.COLOR_RGB2BGR))
+                #     cv2.waitKey(1)
 
                 for key in not_image_keys:
                     if key not in ep_dict:

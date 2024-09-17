@@ -1,5 +1,6 @@
 from lerobot.common.robot_devices.robots.utils import Robot
 from lerobot.common.robot_devices.cameras.utils import Camera
+from lerobot.common.robot_devices.utils import busy_wait
 from dataclasses import dataclass, field, replace
 import time, random
 import torch
@@ -8,11 +9,34 @@ import numpy as np
 import cv2
 from sensor_msgs.msg import JointState
 from kortex_driver.msg import *
-from gazebo_rl.environments.arm_reaching3d_armpy import ArmReacher3D
+from gazebo_rl.environments.basic_arm import BasicArm
+import numpy as np
+
+from pynput import mouse
 
 @dataclass
 class RosRobotConfig:
-        cameras: dict[str, Camera] = field(default_factory=lambda: {})
+    cameras: dict[str, Camera] = field(default_factory=lambda: {})
+
+global next_action
+next_action = 0,0
+minx, maxx = 500, 1500
+miny, maxy = 100, 1200
+def on_move(x, y):
+    if x < minx or x > maxx or y < miny or y > maxy: return np.array([0, 0])
+    
+    xnorm = (x - minx) / (maxx - minx)
+    ynorm = (y - miny) / (maxy - miny)
+
+    xnorm = max(0, min(1, xnorm))
+    ynorm = max(0, min(1, ynorm))
+
+    xnorm = 0.2 * xnorm - .1
+    ynorm = 0.2 * ynorm - .1
+
+    # print(f'Pointer moved to {(x, y)} -> {xnorm, ynorm}')
+    global next_action
+    next_action = np.array([xnorm, ynorm])
 
 import threading
 current_observation = np.zeros(5)    
@@ -59,6 +83,7 @@ class RosRobot(Robot):
         self.cameras = self.config.cameras
         self.is_connected = False
         self.logs = {}
+        self.sim = rospy.get_param('/sim', True)
 
         try:
             rospy.init_node("lerobot", anonymous=True, log_level=rospy.ERROR)
@@ -72,28 +97,28 @@ class RosRobot(Robot):
         self.env = None
 
     def connect(self):
-        input_size = (64, 64, 3)
-        self.env = ArmReacher3D(success_threshold=.02,
-                            sim=rospy.get_param('/sim', True), 
-                            observation_topic="/rl_img_observation", input_size=input_size, 
+        self.env = BasicArm(sim=self.sim, 
                             action_duration=0.1,
-                            discrete_actions=False,
                             velocity_control=True,
                             relative_commands=True)
 
         self.env.reset()
         # Connect the cameras
         for name in self.cameras:
+            print(f"cam name", name)
             self.cameras[name].connect()
         self.is_connected = True
 
 
     def init_teleop(self): 
-        raise NotImplementedError
+        # raise NotImplementedError
+        pass
 
     def run_calibration(self): 
         # TODO: Home arm or reset arm?
-        raise NotImplementedError
+        # raise NotImplementedError
+        pass
+
     def teleop_step(
         self, record_data=False
     ) -> None | tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
@@ -103,11 +128,9 @@ class RosRobot(Robot):
             )
 
         # Grab the teleoperation data and send it using ::send_action
-        action = [0.1, 0, 0, 0, 0, 0, 0]
-
+        global next_action
+        action = [next_action[0], next_action[1], 0, 0, 0, 0, 0]
         self.send_action(action)
-
-        self.env.step(action)
 
         obs_dict = self.capture_observation()
 
@@ -122,24 +145,29 @@ class RosRobot(Robot):
         state = torch.from_numpy(sync_copy_eef())
         self.logs[f'eef_read'] = time.perf_counter() - before_eef_read_t
 
-        # Capture images from cameras
-        images = {}
-        for name in self.cameras:
-            before_camread_t = time.perf_counter()
-            images[name] = self.cameras[name].async_read()
-
-            cv2.imshow(name, images[name]); cv2.waitKey(1);
-
-            images[name] = torch.from_numpy(images[name])
-            self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
-            self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
-
-        # Populate output dictionnaries
+        # Output dictionnaries
         obs_dict = {}
         obs_dict["observation.state"] = state
-        for name in self.cameras:
-            obs_dict[f"observation.images.{name}"] = images[name]
 
+        if self.sim:
+            print("sim")
+            obs_dict[f"observation.images.top"] = torch.rand(64, 64, 3)
+        else:
+            # Capture images from cameras
+            images = {}
+            for name in self.cameras:
+                before_camread_t = time.perf_counter()
+                images[name] = self.cameras[name].async_read()
+
+                cv2.imshow(name, images[name]); cv2.waitKey(1);
+
+                images[name] = torch.from_numpy(images[name])
+                self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
+                self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
+
+            for name in self.cameras:
+                obs_dict[f"observation.images.{name}"] = images[name]
+        
         return obs_dict
 
 
@@ -162,6 +190,11 @@ class RosRobot(Robot):
 
 if __name__ == '__main__':
     from lerobot.common.robot_devices.cameras.opencv import OpenCVCamera
+    import traceback
+
+    # Create a listener
+    listener = mouse.Listener(on_move=on_move)
+    listener.start()
     try:
         robot = RosRobot(cameras={
             "top": OpenCVCamera(0, fps=30, width=640, height=480)
@@ -177,5 +210,6 @@ if __name__ == '__main__':
                 print(f"Failed to capture observation: ", e)
     except Exception as e:
         print(f"Ros Loop died: ", e)
+        print(traceback.format_exc())
 
-    
+    listener.stop()

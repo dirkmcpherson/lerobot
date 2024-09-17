@@ -1,0 +1,13 @@
+python lerobot/scripts/control_robot.py record \
+  --robot-path lerobot/configs/robot/ros.yaml \
+  --fps 30 \
+  --root data \
+  --repo-id js/ros_test \
+  --tags tutorial \
+  --warmup-time-s 5 \
+  --episode-time-s 30 \
+  --reset-time-s 30 \
+  --num-episodes 2 \
+  --push-to-hub 0
+
+
