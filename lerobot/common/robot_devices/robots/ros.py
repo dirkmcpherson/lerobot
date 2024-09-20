@@ -11,6 +11,7 @@ from sensor_msgs.msg import JointState
 from kortex_driver.msg import *
 from gazebo_rl.environments.basic_arm import BasicArm
 import numpy as np
+from PIL import Image
 
 from pynput import mouse
 
@@ -124,7 +125,6 @@ class RosRobot(Robot):
     def teleop_step(
         self, record_data=False
     ) -> None | tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
-        print("rosrobot::teleop_step")
         if not self.is_connected:
             raise RobotDeviceNotConnectedError(
                 "ManipulatorRobot is not connected. You need to run `robot.connect()`."
@@ -141,11 +141,9 @@ class RosRobot(Robot):
 
         # if not record_data: return
         # raise NotImplementedError
-        print(f"rosrobot:end_teleop_step")
         return obs_dict, action_dict
 
-    def capture_observation(self):
-        print("rosrobot::capture_observation")
+    def capture_observation(self, display=False):
         before_eef_read_t = time.perf_counter()
         state = torch.from_numpy(sync_copy_eef())
         self.logs[f'eef_read'] = time.perf_counter() - before_eef_read_t
@@ -155,8 +153,12 @@ class RosRobot(Robot):
         obs_dict["observation.state"] = state
 
         if self.sim:
-            print("sim obs")
-            obs_dict[f"observation.images.top"] = torch.rand(64, 64, 3)
+            img = torch.randint(0, 255, (64, 64, 3)).int()
+            obs_dict[f"observation.images.top"] = img
+            
+            if display:
+                cv2.imshow('sim_image', obs_dict[f"observation.images.top"].numpy())
+                cv2.waitKey(1)
         else:
             # Capture images from cameras
             images = {}
@@ -172,6 +174,8 @@ class RosRobot(Robot):
 
             for name in self.cameras:
                 obs_dict[f"observation.images.{name}"] = images[name]
+                cv2.imshow(name, images[name])
+                cv2.waitKey(1)
 
         # image_keys = [key for key in obs_dict if "image" in key]
         # for key in image_keys:

@@ -111,6 +111,7 @@ from contextlib import nullcontext
 from functools import cache
 from pathlib import Path
 
+import numpy as np
 import cv2
 import torch
 import tqdm
@@ -164,7 +165,7 @@ def say(text, blocking=False):
 
 
 def save_image(img_tensor, key, frame_index, episode_index, videos_dir):
-    img = Image.fromarray(img_tensor.numpy())
+    img = Image.fromarray(img_tensor.numpy().astype(nsp.uint8))
     path = videos_dir / f"{key}_episode_{episode_index:06d}" / f"frame_{frame_index:06d}.png"
     path.parent.mkdir(parents=True, exist_ok=True)
     img.save(str(path), quality=100)
@@ -431,8 +432,8 @@ def record(
         else:
             observation = robot.capture_observation()
 
-        # if not is_headless():
-        #     image_keys = [key for key in observation if "image" in key]
+        if not is_headless():
+            image_keys = [key for key in observation if "image" in key]
         #     for key in image_keys:
         #         cv2.imshow(key, observation[key].numpy())
         #     cv2.waitKey(1)
@@ -453,9 +454,9 @@ def record(
     # Using only 4 worker threads to avoid blocking the main thread.
     futures = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_image_writers) as executor:
+        print(f"Concurrent futures", episode_index, num_episodes)
         # Start recording all episodes
         while episode_index < num_episodes:
-            print(f"Recording episode {episode_index}")
             say(f"Recording episode {episode_index}")
             ep_dict = {}
             frame_index = 0
@@ -473,14 +474,16 @@ def record(
                 not_image_keys = [key for key in observation if "image" not in key]
 
                 for key in image_keys:
+                    print(f"apparantly saving", key, observation[key].shape, " to ", videos_dir)
+                    save_image(observation[key], key, frame_index, episode_index, videos_dir)
                     futures += [
                         executor.submit(
                             save_image, observation[key], key, frame_index, episode_index, videos_dir
                         )
                     ]
 
-                # if not is_headless():
-                #     image_keys = [key for key in observation if "image" in key]
+                if not is_headless():
+                    image_keys = [key for key in observation if "image" in key]
                 #     for key in image_keys:
                 #         cv2.imshow(key, cv2.cvtColor(observation[key].numpy(), cv2.COLOR_RGB2BGR))
                 #     cv2.waitKey(1)
@@ -612,8 +615,9 @@ def record(
                     listener.stop()
 
                 logging.info("Waiting for threads writing the images on disk to terminate...")
+                print("Waiting for threads writing the images on disk to terminate...")
                 for _ in tqdm.tqdm(
-                    concurrent.futures.as_completed(futures), total=len(futures), desc="Writting images"
+                    concurrent.futures.as_completed(futures), total=len(futures), desc="Writing images"
                 ):
                     pass
                 break
@@ -626,6 +630,7 @@ def record(
 
     logging.info("Encoding videos")
     say("Encoding videos")
+    
     # Use ffmpeg to convert frames stored as png into mp4 videos
     for episode_index in tqdm.tqdm(range(num_episodes)):
         for key in image_keys:
