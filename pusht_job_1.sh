@@ -2,8 +2,8 @@
 #SBATCH -J HD_diffusion #job name
 #SBATCH --time=01-00:00:00 #requested time (DD-HH:MM:SS)
 #SBATCH -p gpu #running on "mpi" partition/queue
-#SBATCH --gres=gpu:a100:1 #requesting 1 GPU
-#SBATCH --constraint="a100-80G"
+#SBATCH --gres=gpu:p100:1 #requesting 1 GPU
+#SBATCH --constraint="p100"
 #SBATCH -N 1 #1 nodes
 #SBATCH -n 8 #2 tasks total (default 1 CPU core per task) = # of cores
 #SBATCH --mem=64g #RAM total
