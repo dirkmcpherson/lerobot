@@ -23,5 +23,5 @@ module load cuda/12.2
 export DATA_DIR='/cluster/tufts/shortlab/jstale02/lerobot/local/'
 sleep 30
 source activate three_ten
-python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/3' env.image_size=64 hydra.job.name='imi3'
-python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/4' env.image_size=64 hydra.job.name='imi4'
+python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/9' env.image_size=64 hydra.job.name='imi9'
+python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/10' env.image_size=64 hydra.job.name='imi10'
