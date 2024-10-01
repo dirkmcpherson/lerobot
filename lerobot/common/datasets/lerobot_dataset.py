@@ -38,7 +38,7 @@ from lerobot.common.datasets.video_utils import VideoFrame, load_from_videos
 # For maintainers, see lerobot/common/datasets/push_dataset_to_hub/CODEBASE_VERSION.md
 CODEBASE_VERSION = "v1.6"
 DATA_DIR = Path(os.environ["DATA_DIR"]) if "DATA_DIR" in os.environ else None
-
+print(f"data dir", DATA_DIR)
 
 class LeRobotDataset(torch.utils.data.Dataset):
     def __init__(
@@ -53,22 +53,26 @@ class LeRobotDataset(torch.utils.data.Dataset):
         super().__init__()
         self.repo_id = repo_id
         self.root = root
+        if self.root is None and DATA_DIR is not None:
+            self.root = DATA_DIR # shouldn't this be a default?
+            print(f"root", self.root)
+        # self.root = None
         self.split = split
         self.image_transforms = image_transforms
         self.delta_timestamps = delta_timestamps
         # load data from hub or locally when root is provided
         # TODO(rcadene, aliberts): implement faster transfer
         # https://huggingface.co/docs/huggingface_hub/en/guides/download#faster-downloads
-        self.hf_dataset = load_hf_dataset(repo_id, CODEBASE_VERSION, root, split)
+        self.hf_dataset = load_hf_dataset(repo_id, CODEBASE_VERSION, self.root, split)
         if split == "train":
-            self.episode_data_index = load_episode_data_index(repo_id, CODEBASE_VERSION, root)
+            self.episode_data_index = load_episode_data_index(repo_id, CODEBASE_VERSION, self.root)
         else:
             self.episode_data_index = calculate_episode_data_index(self.hf_dataset)
             self.hf_dataset = reset_episode_index(self.hf_dataset)
-        self.stats = load_stats(repo_id, CODEBASE_VERSION, root)
-        self.info = load_info(repo_id, CODEBASE_VERSION, root)
+        self.stats = load_stats(repo_id, CODEBASE_VERSION, self.root)
+        self.info = load_info(repo_id, CODEBASE_VERSION, self.root)
         if self.video:
-            self.videos_dir = load_videos(repo_id, CODEBASE_VERSION, root)
+            self.videos_dir = load_videos(repo_id, CODEBASE_VERSION, self.root)
             self.video_backend = video_backend if video_backend is not None else "pyav"
 
     @property

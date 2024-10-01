@@ -119,6 +119,7 @@ def get_hf_dataset_safe_version(repo_id: str, version: str) -> str:
 def load_hf_dataset(repo_id: str, version: str, root: Path, split: str) -> datasets.Dataset:
     """hf_dataset contains all the observations, states, actions, rewards, etc."""
     if root is not None:
+        print(f"loading from disk", str(Path(root) / repo_id / "train"))
         hf_dataset = load_from_disk(str(Path(root) / repo_id / "train"))
         # TODO(rcadene): clean this which enables getting a subset of dataset
         if split != "train":
@@ -137,6 +138,7 @@ def load_hf_dataset(repo_id: str, version: str, root: Path, split: str) -> datas
                     f'`split` ({split}) should either be "train", "train[INT:]", or "train[:INT]"'
                 )
     else:
+        print(f"loading from hub", root)
         safe_version = get_hf_dataset_safe_version(repo_id, version)
         hf_dataset = load_dataset(repo_id, revision=safe_version, split=split)
 
