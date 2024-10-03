@@ -13,7 +13,9 @@ env:
   gym:
     obs_type: pixels_agent_pos
     render_mode: rgb_array
-    display_cross: false
     visualization_width: 384
     visualization_height: 384
+    observation_width: 96
+    observation_height: 96
     force_sparse: false
+    display_cross: false
