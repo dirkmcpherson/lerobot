@@ -50,7 +50,7 @@ def to_hf_dataset(data_dict, video):
     hf_dataset.set_transform(hf_transform_to_torch)
     return hf_dataset
 
-env_name = "pusht"; img_size = 96; neps = 200
+env_name = "pusht"; img_size = 64; neps = 200
 
 # Create a directory to store the video of the evaluation
 # output_directory = Path("outputs/eval/example_pusht_diffusion")
@@ -84,8 +84,8 @@ env = gym.make(
     "gym_pusht/PushT-v0",
     obs_type="pixels_agent_pos",
     max_episode_steps=300,
-    observation_width=img_size,
-    observation_height=img_size
+    observation_width=96,
+    observation_height=96
 )
 fps=10; video=False; video_path=None
 ep_dicts = []
@@ -155,7 +155,7 @@ for episode_index in range(neps):
 
         # Step through the environment and receive a new observation
         numpy_observation, reward, terminated, truncated, info = env.step(numpy_action)
-        print(f"{step=} {reward=} {terminated=}")
+        # print(f"{step=} {reward=} {terminated=}")
 
         # Keep track of all the rewards and frames
         rewards.append(reward)
@@ -180,13 +180,18 @@ for episode_index in range(neps):
         ep_dict['timestamp'].append(step / fps)
 
         step += 1; ep_to += 1
+    print(f"{episode_index=} complete after {step=}. Success: {terminated}. Reward: {sum(rewards)}")
     
     # convert things to torch
     for key in ep_dict:
         if key == 'episode_index':
             ep_dict[key] = torch.tensor(ep_dict[key], dtype=torch.int64)
         elif key == 'observation.image':
-            pass # keep it as a list of numpy arrays
+            if ep_dict[key][0].shape[0] != img_size:
+                # resize the image
+                print(f"Resizing image to {img_size}x{img_size}")
+                for i, img in enumerate(ep_dict[key]):
+                    ep_dict[key][i] = cv2.resize(img, (img_size, img_size))
         else:
             ep_dict[key] = torch.tensor(ep_dict[key])
 
