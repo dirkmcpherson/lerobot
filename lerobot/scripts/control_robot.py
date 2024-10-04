@@ -165,7 +165,7 @@ def say(text, blocking=False):
 
 
 def save_image(img_tensor, key, frame_index, episode_index, videos_dir):
-    img = Image.fromarray(img_tensor.numpy().astype(nsp.uint8))
+    img = Image.fromarray(img_tensor.numpy().astype(np.uint8))
     path = videos_dir / f"{key}_episode_{episode_index:06d}" / f"frame_{frame_index:06d}.png"
     path.parent.mkdir(parents=True, exist_ok=True)
     img.save(str(path), quality=100)
@@ -547,6 +547,7 @@ def record(
                 # Start resetting env while the executor are finishing
                 logging.info("Reset the environment")
                 say("Reset the environment")
+                robot.reset()
 
             timestamp = 0
             start_vencod_t = time.perf_counter()

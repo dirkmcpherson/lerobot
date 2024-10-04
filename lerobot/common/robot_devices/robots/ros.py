@@ -111,6 +111,9 @@ class RosRobot(Robot):
             self.cameras[name].connect()
         self.is_connected = True
 
+    def reset(self):
+        print(f"RosRobot resetting...")
+        self.env.reset()
 
     def init_teleop(self): 
         # Create a listener
@@ -129,10 +132,21 @@ class RosRobot(Robot):
             raise RobotDeviceNotConnectedError(
                 "ManipulatorRobot is not connected. You need to run `robot.connect()`."
             )
+        
+        action = [0, 0, 0, 0, 0, 0, 0]
+        if HARDCODE_ACTION:=True:
+            obs_dict = self.capture_observation()
+            print(f"Warn: hardcoded action")
+            if obs_dict['observation.state'][0] < 0.8:
+                action[0] = 0.05
+            if obs_dict['observation.state'][1] < 0.2:
+                action[1] = 0.05
+        else:
+            # Grab the teleoperation data and send it using ::send_action
+            global next_action
+            action = [next_action[0], next_action[1], 0, 0, 0, 0, 0]
 
-        # Grab the teleoperation data and send it using ::send_action
-        global next_action
-        action = [next_action[0], next_action[1], 0, 0, 0, 0, 0]
+
         self.send_action(action)
 
         obs_dict = self.capture_observation()
@@ -187,6 +201,7 @@ class RosRobot(Robot):
     def send_action(self, action):
         # Command the robot to take the action
         self.env.step(action)
+        print(f"RosRobot::send_action {[f'{entry:1.2f}' for entry in action]}")
         return action
 
     def disconnect(self):
