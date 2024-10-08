@@ -138,8 +138,8 @@ def load_hf_dataset(repo_id: str, version: str, root: Path, split: str) -> datas
                     f'`split` ({split}) should either be "train", "train[INT:]", or "train[:INT]"'
                 )
     else:
-        print(f"loading from hub", root)
         safe_version = get_hf_dataset_safe_version(repo_id, version)
+        print(f"loading from hub", root, repo_id, version, safe_version, split)
         hf_dataset = load_dataset(repo_id, revision=safe_version, split=split)
 
     hf_dataset.set_transform(hf_transform_to_torch)
