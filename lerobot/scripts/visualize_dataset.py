@@ -118,6 +118,7 @@ def visualize_dataset(
 
     logging.info("Loading dataset")
     dataset = LeRobotDataset(repo_id, root=root)
+    print("camera keys", dataset.camera_keys)
 
     logging.info("Loading dataloader")
     episode_sampler = EpisodeSampler(dataset, episode_index)

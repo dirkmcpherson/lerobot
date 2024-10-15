@@ -108,6 +108,7 @@ def make_dataset(cfg, split: str = "train") -> LeRobotDataset | MultiLeRobotData
         )
 
     if cfg.get("override_dataset_stats"):
+        print(cfg.get("override_dataset_stats"))
         for key, stats_dict in cfg.override_dataset_stats.items():
             for stats_type, listconfig in stats_dict.items():
                 # example of stats_type: min, max, mean, std

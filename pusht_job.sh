@@ -26,4 +26,5 @@ export WANDB_CACHE_DIR=/cluster/tufts/shortlab/jstale02
 sleep 5
 source activate three_ten
 python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/example_pusht_diffusion_96' hydra.job.name='diffusion_pusht_96' wandb.project='diffusion_pusht'
+DATA_DIR=outputs/eval/2024-10-11/11-34-53_pusht_diffusion python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='' hydra.job.name='12_96_Aout' wandb.project='diffusion_pusht'
 # python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/3' env.image_size=64 hydra.job.name='imi3'

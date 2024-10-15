@@ -1,6 +1,6 @@
 export DATA_DIR='./local/'
 
-source venv/bin/activate
+# source venv/bin/activate
 
 # python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/A4' env.image_size=64 hydra.job.name='Aimi4'
 # python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/A5' env.image_size=64 hydra.job.name='Aimi5'
@@ -16,11 +16,13 @@ source venv/bin/activate
 
 
 # AI Dems
-python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/A11_96x96' hydra.job.name='Aimi11_96' seed=7
-python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/11_96x96' hydra.job.name='imi11_96' seed=7
+# python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/A11_96x96' hydra.job.name='Aimi11_96' seed=7
+# python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/11_96x96' hydra.job.name='imi11_96' seed=7
 
-python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/A12_96x96' hydra.job.name='Aimi12_96' seed=5632
-python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/12_96x96' hydra.job.name='imi12_96' seed=5632
+# python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/A12_96x96' hydra.job.name='Aimi12_96' seed=5632
+# python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/12_96x96' hydra.job.name='imi12_96' seed=5632
 
-python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/A13_96x96' hydra.job.name='Aimi13_96' seed=423213
-python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/13_96x96' hydra.job.name='imi13_96' seed=423213
+# python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/A13_96x96' hydra.job.name='Aimi13_96' seed=423213
+# python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/13_96x96' hydra.job.name='imi13_96' seed=423213
+python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/14_96x96' hydra.job.name='imi14_96' seed=6213
+python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/A14_96x96' hydra.job.name='Aimi14_96' seed=6213
