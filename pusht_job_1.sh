@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J diffusion_64 #job name
+#SBATCH -J diffusion_14 #job name
 #SBATCH --time=01-00:00:00 #requested time (DD-HH:MM:SS)
 #SBATCH -p gpu #running on "mpi" partition/queue
 #SBATCH --gres=gpu:a100:1 #requesting 1 GPU
@@ -24,4 +24,5 @@ export WANDB_DATA_DIR=/cluster/tufts/shortlab/jstale02
 export WANDB_CACHE_DIR=/cluster/tufts/shortlab/jstale02
 sleep 5
 source activate three_ten
-python lerobot/scripts/train.py policy=diffusion env=pusht env.image_size=64 dataset_repo_id='pusht/example_pusht_diffusion_64' hydra.job.name='diffusion_pusht_64' wandb.project='diffusion_pusht'
+python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/14_96x96' hydra.job.name='imi14_96' seed=6213
+python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/A14_96x96' hydra.job.name='Aimi14_96' seed=6213
