@@ -11,3 +11,12 @@ python lerobot/scripts/control_robot.py record \
   --push-to-hub 0
 
 
+DATA_DIR=data python lerobot/scripts/train.py \
+dataset_repo_id=js/ros_test \
+policy=act_ros_real \
+env=ros_real \
+hydra.run.dir=outputs/train/act_ros_test \
+hydra.job.name=act_ros_test \ 
+device=cuda
+
+

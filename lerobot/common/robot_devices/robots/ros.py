@@ -18,6 +18,7 @@ from pynput import mouse
 @dataclass
 class RosRobotConfig:
     cameras: dict[str, Camera] = field(default_factory=lambda: {})
+    state_topic: str = "/my_gen3/base_feedback"
 
 global next_action
 next_action = 0,0
@@ -92,7 +93,7 @@ class RosRobot(Robot):
             print(f"Failed to start ros node!")
             raise RobotDeviceNotConnectedError
 
-        rospy.Subscriber("/my_gen3/base_feedback", BaseCyclic_Feedback, callback=eef_pose)
+        rospy.Subscriber(self.config.state_topic, BaseCyclic_Feedback, callback=eef_pose)
 
         self.is_connected = False
         self.env = None
@@ -136,16 +137,14 @@ class RosRobot(Robot):
         action = [0, 0, 0, 0, 0, 0, 0]
         if HARDCODE_ACTION:=True:
             obs_dict = self.capture_observation()
-            print(f"Warn: hardcoded action")
-            if obs_dict['observation.state'][0] < 0.8:
-                action[0] = 0.05
-            if obs_dict['observation.state'][1] < 0.2:
-                action[1] = 0.05
+            print(f"WARN: hardcoded action")
+            if obs_dict['observation.state'][0] < 0.8:action[0] = 0.05
+            if obs_dict['observation.state'][1] < 0.2:action[1] = 0.05
         else:
             # Grab the teleoperation data and send it using ::send_action
             global next_action
             action = [next_action[0], next_action[1], 0, 0, 0, 0, 0]
-
+            # TODO: Mouse control is fine for on robot verification, but then bring in xbox controller control.
 
         self.send_action(action)
 
