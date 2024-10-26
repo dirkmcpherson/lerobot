@@ -470,7 +470,7 @@ def main(
         out_dir = f"outputs/eval/{dt.now().strftime('%Y-%m-%d/%H-%M-%S')}_{hydra_cfg.env.name}_{hydra_cfg.policy.name}"
 
 
-    dataset_outdir = Path(str(pretrained_policy_path) + 'Aout') if 'lerobot' not in str(pretrained_policy_path) else Path("~/workspace/lerobot/local/pusht/hfAout").expanduser()
+    dataset_outdir = Path(str(pretrained_policy_path) + 'out') if 'lerobot' not in str(pretrained_policy_path) else Path("~/workspace/lerobot/local/pusht/hfAout").expanduser()
     print(f'{dataset_outdir=}')
     
     # Check device is available
