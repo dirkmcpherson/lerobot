@@ -28,4 +28,4 @@ source activate three_ten
 # python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/10' env.image_size=64 hydra.job.name='imi10'
 
 python lerobot/scripts/train.py policy=vqbet env=pusht dataset_repo_id='pusht/11_96x96' hydra.job.name='imi11_96' seed=7 wandb.project='vqbet_pusht'
-python lerobot/scripts/train.py policy=vqbet env=pusht dataset_repo_id='pusht/A11_96x96' hydra.job.name='Aimi11_96' seed=7 wandb.project='vqbet_push
+python lerobot/scripts/train.py policy=vqbet env=pusht dataset_repo_id='pusht/A11_96x96' hydra.job.name='Aimi11_96' seed=7 wandb.project='vqbet_push'
