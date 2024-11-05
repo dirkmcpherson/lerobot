@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J HD_diffusion #job name
+#SBATCH -J vqbet_12_a100 #job name
 #SBATCH --time=01-00:00:00 #requested time (DD-HH:MM:SS)
 #SBATCH -p gpu #running on "mpi" partition/queue
 #SBATCH --gres=gpu:a100:1 #requesting 1 GPU

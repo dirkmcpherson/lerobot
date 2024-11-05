@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH -J diffusion_14_p100 #job name
-#SBATCH --time=01-00:00:00 #requested time (DD-HH:MM:SS)
+#SBATCH -J vqbet_13_p100 #job name
+#SBATCH --time=02-00:00:00 #requested time (DD-HH:MM:SS)
 #SBATCH -p gpu #running on "mpi" partition/queue
 #SBATCH --gres=gpu:p100:1 #requesting 1 GPU
 #SBATCH --constraint="p100"
