@@ -25,4 +25,7 @@ export WANDB_DATA_DIR=/cluster/tufts/shortlab/jstale02
 export WANDB_CACHE_DIR=/cluster/tufts/shortlab/jstale02
 sleep 5
 source activate three_ten
-python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/A14_96x96' hydra.job.name='Aimi14_96' seed=6213
+# python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/A14_96x96' hydra.job.name='Aimi14_96' seed=6213
+
+python lerobot/scripts/train.py policy=vqbet env=pusht dataset_repo_id='pusht/13_96x96' hydra.job.name='imi13_96' seed=423213 wandb.project='vqbet_pusht'
+python lerobot/scripts/train.py policy=vqbet env=pusht dataset_repo_id='pusht/A13_96x96' hydra.job.name='Aimi13_96' seed=423213 wandb.project='vqbet_push

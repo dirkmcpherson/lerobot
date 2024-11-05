@@ -24,5 +24,5 @@ export DATA_DIR='./local/'
 
 # python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/A13_96x96' hydra.job.name='Aimi13_96' seed=423213
 # python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/13_96x96' hydra.job.name='imi13_96' seed=423213
-python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/14_96x96' hydra.job.name='imi14_96' seed=6213
-python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/A14_96x96' hydra.job.name='Aimi14_96' seed=6213
+DATA_DIR='./local' python lerobot/scripts/train.py policy=vqbet env=pusht dataset_repo_id='pusht/14_96x96' hydra.job.name='imi14_96' seed=6213 wandb.project='vqbet_pusht'
+DATA_DIR='./local' python lerobot/scripts/train.py policy=vqbet env=pusht dataset_repo_id='pusht/A14_96x96' hydra.job.name='Aimi14_96' seed=6213 wandb.project='vqbet_pusht'
