@@ -21,7 +21,9 @@
 module load anaconda/2021.11
 module load cuda/12.2
 export DATA_DIR='/cluster/tufts/shortlab/jstale02/lerobot/local/'
-sleep 30
+export WANDB_DATA_DIR=/cluster/tufts/shortlab/jstale02
+export WANDB_CACHE_DIR=/cluster/tufts/shortlab/jstale02
+sleep 5
 source activate three_ten
 
 # python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/9' env.image_size=64 hydra.job.name='imi9'

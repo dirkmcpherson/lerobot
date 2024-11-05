@@ -21,10 +21,12 @@
 module load anaconda/2021.11
 module load cuda/12.2
 export DATA_DIR='/cluster/tufts/shortlab/jstale02/lerobot/local/'
-sleep 30
+export WANDB_DATA_DIR=/cluster/tufts/shortlab/jstale02
+export WANDB_CACHE_DIR=/cluster/tufts/shortlab/jstale02
+sleep 5
 source activate three_ten
 # python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/7' env.image_size=64 hydra.job.name='imi7'
 # python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='pusht/8' env.image_size=64 hydra.job.name='imi8'
 
 python lerobot/scripts/train.py policy=vqbet env=pusht dataset_repo_id='pusht/12_96x96' hydra.job.name='imi12_96' seed=5632 wandb.project='vqbet_pusht'
-python lerobot/scripts/train.py policy=vqbet env=pusht dataset_repo_id='pusht/A12_96x96' hydra.job.name='Aimi12_96' seed=5632 wandb.project='vqbet_push'
+python lerobot/scripts/train.py policy=vqbet env=pusht dataset_repo_id='pusht/A12_96x96' hydra.job.name='Aimi12_96' seed=5632 wandb.project='vqbet_pusht'
