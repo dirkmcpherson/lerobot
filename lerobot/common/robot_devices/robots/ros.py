@@ -98,6 +98,7 @@ class RosRobot(Robot):
         self.is_connected = False
         self.env = None
         self.listener = None
+        self.robot_type = 'ros'
 
     def connect(self):
         self.env = BasicArm(sim=self.sim, 
@@ -115,6 +116,14 @@ class RosRobot(Robot):
     def reset(self):
         print(f"RosRobot resetting...")
         self.env.reset()
+
+    @property
+    def has_camera(self):
+        return len(self.cameras) > 0
+
+    @property
+    def num_cameras(self):
+        return len(self.cameras)
 
     def init_teleop(self): 
         # Create a listener
@@ -166,7 +175,7 @@ class RosRobot(Robot):
         obs_dict["observation.state"] = state
 
         if self.sim:
-            img = torch.randint(0, 255, (64, 64, 3)).int()
+            img = torch.randn((640, 480, 3)).float()
             obs_dict[f"observation.images.top"] = img
             
             if display:
