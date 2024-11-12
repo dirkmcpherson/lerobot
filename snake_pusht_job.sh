@@ -32,5 +32,5 @@ source activate three_ten
 # python lerobot/scripts/train.py policy=vqbet env=pusht dataset_repo_id='pusht/A13_96x96' hydra.job.name='Aimi13_96' seed=423213 wandb.project='vqbet_pusht'
 DATA_DIR='./local/models' python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='12out' hydra.job.name='12out' seed=43 wandb.project='diffusion_pusht'
 DATA_DIR='./local/models' python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='13out' hydra.job.name='13out' seed=13 wandb.project='diffusion_pusht'
-DATA_DIR='./local/models' python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='14out' hydra.job.name='14out' seed=21 wandb.project='diffusion_pusht'
-DATA_DIR='./local/models' python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='11out' hydra.job.name='11out' seed=4213 wandb.project='diffusion_pusht'
+# DATA_DIR='./local/models' python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='14out' hydra.job.name='14out' seed=21 wandb.project='diffusion_pusht'
+# DATA_DIR='./local/models' python lerobot/scripts/train.py policy=diffusion env=pusht dataset_repo_id='11out' hydra.job.name='11out' seed=4213 wandb.project='diffusion_pusht'
