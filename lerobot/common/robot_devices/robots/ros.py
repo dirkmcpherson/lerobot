@@ -93,6 +93,7 @@ class RosRobot(Robot):
             print(f"Failed to start ros node!")
             raise RobotDeviceNotConnectedError
 
+        self.robot_name = rospy.get_param('robot_name', 'my_gen3')
         rospy.Subscriber(self.config.state_topic, BaseCyclic_Feedback, callback=eef_pose)
 
         self.is_connected = False
@@ -103,7 +104,8 @@ class RosRobot(Robot):
     def connect(self):
         ## TODO: The arm is a node and you're sending Twist messages on the 'robot_control' topic
         ## subscribe to the camera topic
-        self.env = BasicArm(sim=self.sim, 
+        self.env = BasicArm(robot_name=self.robot_name
+                            sim=self.sim, 
                             action_duration=0.1,
                             velocity_control=True,
                             relative_commands=True)

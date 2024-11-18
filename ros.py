@@ -91,13 +91,16 @@ class RosRobot(Robot):
             print(f"Failed to start ros node!")
             raise RobotDeviceNotConnectedError
 
-        rospy.Subscriber("/my_gen3/base_feedback", BaseCyclic_Feedback, callback=eef_pose)
+
+        robot_name = rospy.get_param('robot_name', 'my_gen3')
+        rospy.Subscriber(f"/{robot_name}/base_feedback", BaseCyclic_Feedback, callback=eef_pose)
 
         self.is_connected = False
         self.env = None
 
     def connect(self):
-        self.env = BasicArm(sim=self.sim, 
+        self.env = BasicArm(robot_name=
+                            sim=self.sim, 
                             action_duration=0.1,
                             velocity_control=True,
                             relative_commands=True)
