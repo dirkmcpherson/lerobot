@@ -104,7 +104,7 @@ class RosRobot(Robot):
     def connect(self):
         ## TODO: The arm is a node and you're sending Twist messages on the 'robot_control' topic
         ## subscribe to the camera topic
-        self.env = BasicArm(robot_name=self.robot_name
+        self.env = BasicArm(robot_name=self.robot_name,
                             sim=self.sim, 
                             action_duration=0.1,
                             velocity_control=True,
