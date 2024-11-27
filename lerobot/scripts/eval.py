@@ -151,6 +151,8 @@ def rollout(
 
         observation = {key: observation[key].to(device, non_blocking=True) for key in observation}
 
+        # for k in observation.keys():
+        #     print(k, observation[k].shape if hasattr(observation[k], 'shape') else len(observation[k]))
         with torch.inference_mode():
             action = policy.select_action(observation)
 
@@ -467,6 +469,10 @@ def main(
     if out_dir is None:
         out_dir = f"outputs/eval/{dt.now().strftime('%Y-%m-%d/%H-%M-%S')}_{hydra_cfg.env.name}_{hydra_cfg.policy.name}"
 
+
+    dataset_outdir = Path(str(pretrained_policy_path) + 'out') if 'lerobot' not in str(pretrained_policy_path) else Path("~/workspace/lerobot/local/pusht/hfAout").expanduser()
+    print(f'{dataset_outdir=}')
+    
     # Check device is available
     device = get_safe_torch_device(hydra_cfg.device, log=True)
 
@@ -477,6 +483,7 @@ def main(
     log_output_dir(out_dir)
 
     logging.info("Making environment.")
+    hydra_cfg.env.gym.obs_type = "pixels_state"
     env = make_env(hydra_cfg)
 
     logging.info("Making policy.")
@@ -489,24 +496,100 @@ def main(
     assert isinstance(policy, nn.Module)
     policy.eval()
 
+    videos_dir = Path(out_dir)/"videos"
     with torch.no_grad(), torch.autocast(device_type=device.type) if hydra_cfg.use_amp else nullcontext():
         info = eval_policy(
             env,
             policy,
             hydra_cfg.eval.n_episodes,
             max_episodes_rendered=10,
-            videos_dir=Path(out_dir) / "videos",
+            videos_dir=videos_dir,
             start_seed=hydra_cfg.seed,
+            return_episode_data=True
         )
     print(info["aggregated"])
 
+    from lerobot.common.datasets.compute_stats import compute_stats
+    from lerobot.scripts.push_dataset_to_hub import save_meta_data
+    from lerobot.common.datasets.push_dataset_to_hub.utils import concatenate_episodes
+    from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+    from lerobot.common.datasets.utils import calculate_episode_data_index
+    from lerobot.common.datasets.utils import hf_transform_to_torch
+
+    from datasets import Dataset, Features, Image, Sequence, Value
+    
+
+    video=False; 
+    extrainfo = {"fps": hydra_cfg.fps, "video": video}
+
+    data_dict = info['episodes']
+
+    print(data_dict['pusht_state'].shape)
+    # features = {}
+    # if video: raise not NotImplementedError
+    # else: features["observation.image"] = Image()
+
+    # features["observation.state"] = Sequence(
+    #     length=data_dict["observation.state"].shape[1], feature=Value(dtype="float32", id=None)
+    # )
+    # features["action"] = Sequence(
+    #     length=data_dict["action"].shape[1], feature=Value(dtype="float32", id=None)
+    # )
+    # features["episode_index"] = Value(dtype="int64", id=None)
+    # features["frame_index"] = Value(dtype="int64", id=None)
+    # features["timestamp"] = Value(dtype="float32", id=None)
+    # features["next.reward"] = Value(dtype="float32", id=None)
+    # features["next.done"] = Value(dtype="bool", id=None)
+    # features["next.success"] = Value(dtype="bool", id=None)
+    # features["index"] = Value(dtype="int64", id=None)
+
+    # from IPython import embed as ipshell; ipshell()
+    # hf_dataset = Dataset.from_dict(data_dict, features=Features(features))
+    hf_dataset = Dataset.from_dict(data_dict)
+
+    episode_data_index = calculate_episode_data_index(hf_dataset)
+    lerobot_dataset = LeRobotDataset.from_preloaded(
+        repo_id=hydra_cfg.env.name,
+        hf_dataset=hf_dataset,
+        episode_data_index=episode_data_index,
+        info=extrainfo,
+        videos_dir=videos_dir,
+        )
+    
+    print("camera keys", lerobot_dataset.camera_keys)
+
+    out_dir = Path(out_dir)
+    hf_dataset = hf_dataset.with_format(None)  # to remove transforms that cant be saved
+    hf_dataset.save_to_disk(str(dataset_outdir / "train"))
+    # stats = compute_stats(lerobot_dataset, batch_size=16, num_workers=1)
+    print(f"Warning: saving out filler stats due to 'too many open fps' error. JS.")
+    stats = {
+        'observation.image': {
+            'mean': torch.Tensor([[[0.5]], [[0.5]], [[0.5]]]),  # (c,1,1)
+            'std': torch.Tensor([[[0.5]], [[0.5]], [[0.5]]])  # (c,1,1))
+        },
+        'observation.state': {
+            'min': torch.Tensor([13.456424, 32.938293]),
+            'max': torch.Tensor([496.14618, 510.9579])
+        },
+        'action': {
+            'min': torch.Tensor([12.0, 25.0]),
+            'max': torch.Tensor([511.0, 511.0])
+        }
+    }
+    save_meta_data(extrainfo, stats, episode_data_index, dataset_outdir / "meta_data")
+
+
     # Save info
+    outinfo = {k:v for k,v in info.items() if k != 'episodes'}
     with open(Path(out_dir) / "eval_info.json", "w") as f:
-        json.dump(info, f, indent=2)
+        json.dump(outinfo, f, indent=2)
 
     env.close()
 
     logging.info("End of eval")
+    for k,v in info['episodes'].items():
+        print(f'{k} {v.shape if hasattr(v, "shape") else len(v)}')
 
 
 def get_pretrained_policy_path(pretrained_policy_name_or_path, revision=None):

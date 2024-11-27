@@ -123,8 +123,9 @@ eval:
   use_async_envs: false
 
 wandb:
-  enable: false
+  enable: true
   # Set to true to disable saving an artifact despite save_checkpoint == True
   disable_artifact: false
-  project: lerobot
+  entity: jambotime
+  project: diffusion_pusht
   notes: ""
