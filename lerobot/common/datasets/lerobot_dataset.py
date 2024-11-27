@@ -84,7 +84,8 @@ class LeRobotDatasetMetadata:
 
         # Load metadata
         (self.root / "meta").mkdir(exist_ok=True, parents=True)
-        self.pull_from_repo(allow_patterns="meta/")
+        if not local_files_only: # JS
+            self.pull_from_repo(allow_patterns="meta/")
         self.info = load_info(self.root)
         self.stats = load_stats(self.root)
         self.tasks = load_tasks(self.root)
@@ -298,7 +299,7 @@ class LeRobotDatasetMetadata:
                     f"Some cameras in your {robot.robot_type} robot don't have an fps matching the fps of your dataset."
                     "In this case, frames from lower fps cameras will be repeated to fill in the blanks."
                 )
-        elif robot_type is None or features is None:
+        elif robot_type is None and features is None:
             raise ValueError(
                 "Dataset features must either come from a Robot or explicitly passed upon creation."
             )
@@ -434,7 +435,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
         self.tolerance_s = tolerance_s
         self.video_backend = video_backend if video_backend else "pyav"
         self.delta_indices = None
-        self.local_files_only = local_files_only
+        self.local_files_only = True #local_files_only
+        print(f"WARN: forcing local files true") # JS
 
         # Unused attributes
         self.image_writer = None
@@ -449,7 +451,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
         check_version_compatibility(self.repo_id, self.meta._version, CODEBASE_VERSION)
 
         # Load actual data
-        self.download_episodes(download_videos)
+        if not local_files_only: # JS
+            self.download_episodes(download_videos)
         self.hf_dataset = self.load_hf_dataset()
         self.episode_data_index = get_episode_data_index(self.meta.episodes, self.episodes)
 
