@@ -61,6 +61,7 @@ def preprocess_observation(observations: dict[str, np.ndarray]) -> dict[str, Ten
     if "agent_pos" in observations:
         return_observations["observation.state"] = torch.from_numpy(observations["agent_pos"]).float()
     else:
-        return_observations["observation.state"] = torch.from_numpy(observations["state"][:, :2]).float()
+        # return_observations["observation.state"] = torch.from_numpy(observations["state"][:, :2]).float()
+        return_observations["observation.state"] = torch.from_numpy(observations["state"]).float()
         return_observations["pusht_state"] = torch.from_numpy(observations["state"]).float()
     return return_observations
