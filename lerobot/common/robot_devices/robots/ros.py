@@ -18,6 +18,7 @@ from pynput import mouse
 @dataclass
 class RosRobotConfig:
     cameras: dict[str, Camera] = field(default_factory=lambda: {})
+    topics: dict[str, str] = field(default_factory=lambda: {})
     state_topic: str = "/my_gen3/base_feedback"
 
 global next_action
@@ -83,6 +84,7 @@ class RosRobot(Robot):
         self.config = replace(config, **kwargs)
 
         self.cameras = self.config.cameras
+        self.topics = self.config.topics
         self.is_connected = False
         self.logs = {}
         self.sim = rospy.get_param('/sim', True); print(f"Sim: {self.sim}")
