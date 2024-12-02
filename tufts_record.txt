@@ -1,0 +1,22 @@
+python lerobot/scripts/control_robot.py record \
+  --robot-path lerobot/configs/robot/ros.yaml \
+  --fps 30 \
+  --root data \
+  --repo-id js/ros_test \
+  --tags tutorial \
+  --warmup-time-s 5 \
+  --episode-time-s 30 \
+  --reset-time-s 30 \
+  --num-episodes 2 \
+  --push-to-hub 0
+
+
+DATA_DIR=data python lerobot/scripts/train.py \
+dataset_repo_id=js/ros_test \
+policy=act_ros_real \
+env=ros_real \
+hydra.run.dir=outputs/train/act_ros_test \
+hydra.job.name=act_ros_test \ 
+device=cuda
+
+

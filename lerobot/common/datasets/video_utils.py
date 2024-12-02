@@ -131,7 +131,7 @@ def encode_video_frames(
     imgs_dir: Path | str,
     video_path: Path | str,
     fps: int,
-    vcodec: str = "libsvtav1",
+    vcodec: str = "libx264", #"libsvtav1",
     pix_fmt: str = "yuv420p",
     g: int | None = 2,
     crf: int | None = 30,
@@ -152,6 +152,8 @@ def encode_video_frames(
             ("-pix_fmt", pix_fmt),
         ]
     )
+
+    print(f"WARN: We should be using libsvtav1 for fast encode/decode but JSS is lazy. Change for real implementations.")
 
     if g is not None:
         ffmpeg_args["-g"] = str(g)
