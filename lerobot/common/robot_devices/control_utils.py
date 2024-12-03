@@ -46,7 +46,7 @@ def log_control_info(robot: Robot, dt_s, episode_index=None, frame_index=None, f
     log_dt("dt", dt_s)
 
     # TODO(aliberts): move robot-specific logs logic in robot.print_logs()
-    if not robot.robot_type.startswith("stretch"):
+    if not robot.robot_type.startswith("stretch") and not robot.robot_type.startswith('ros'):
         for name in robot.leader_arms:
             key = f"read_leader_{name}_pos_dt_s"
             if key in robot.logs:
@@ -276,9 +276,10 @@ def control_loop(
 
         if display_cameras and not is_headless():
             image_keys = [key for key in observation if "image" in key]
-            for key in image_keys:
-                cv2.imshow(key, cv2.cvtColor(observation[key].numpy(), cv2.COLOR_RGB2BGR))
-            cv2.waitKey(1)
+            # for key in image_keys:
+            #     print(observation[key].numpy().shape)
+            #     cv2.imshow(key, cv2.cvtColor(observation[key].numpy(), cv2.COLOR_RGB2BGR))
+            # cv2.waitKey(1)
 
         if fps is not None:
             dt_s = time.perf_counter() - start_loop_t

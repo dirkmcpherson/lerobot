@@ -1,0 +1,33 @@
+_target_: lerobot.common.robot_devices.robots.ros.RosRobot
+cameras:
+  top:
+    _target_: lerobot.common.robot_devices.cameras.opencv.OpenCVCamera
+    camera_index: 0
+    fps: 30
+    width: 640
+    height: 480
+  bottom:
+    _target_: lerobot.common.robot_devices.cameras.opencv.OpenCVCamera
+    camera_index: 0
+    fps: 30
+    width: 640
+    height: 480
+
+topics:
+  observation:
+    image:
+      top: 
+        topic: cam_dev_video0
+        msg_type: 'sensor_msgs/Image'
+      bottom:
+        topic: cam_dev_video2
+        msg_type: 'sensor_msgs/Image'
+    state: 
+      topic: 'my_gen3_lite/base_feedback'
+      msg_type: 'kortex_driver/BaseCyclic_Feedback'
+    reward: 
+      topic: 'reward'
+      msg_type: 'std_msgs/Float'
+    action:
+      topic: 'joy'
+      msg_type: 'sensor_msgs/Joy'
