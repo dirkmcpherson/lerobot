@@ -451,7 +451,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         check_version_compatibility(self.repo_id, self.meta._version, CODEBASE_VERSION)
 
         # Load actual data
-        if not local_files_only: # JS
+        if not self.local_files_only: # JS
             self.download_episodes(download_videos)
         self.hf_dataset = self.load_hf_dataset()
         self.episode_data_index = get_episode_data_index(self.meta.episodes, self.episodes)
