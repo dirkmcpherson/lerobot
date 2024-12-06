@@ -256,17 +256,24 @@ def control_loop(
     timestamp = 0
     start_episode_t = time.perf_counter()
     while timestamp < control_time_s:
-        start_loop_t = time.perf_counter()
+        start_loop_t = t0 = time.perf_counter()
 
         if teleoperate:
             observation, action = robot.teleop_step(record_data=True)
         else:
             observation = robot.capture_observation()
+            dt_s = time.perf_counter() - t0
+            # print(f'obs_time ', dt_s); t0 = time.perf_counter()
 
             if policy is not None:
                 pred_action = predict_action(observation, policy, device, use_amp)
+                dt_s = time.perf_counter() - t0
+                # print(f'action_time ', dt_s); t0 = time.perf_counter()
                 # Action can eventually be clipped using `max_relative_target`,
                 # so action actually sent is saved in the dataset.
+
+                # print(f'{pred_action=}')
+                
                 action = robot.send_action(pred_action)
                 action = {"action": action}
 

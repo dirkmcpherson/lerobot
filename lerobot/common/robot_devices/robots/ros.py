@@ -7,11 +7,13 @@ import torch
 import rospy
 import numpy as np
 import cv2
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import Image as RosImage, Joy
 from kortex_driver.msg import *
+from std_msgs.msg import Float32, Int8
 from gazebo_rl.environments.basic_arm import BasicArm
+from cv_bridge import CvBridge
 import numpy as np
-from PIL import Image
+# from PIL import Image
 
 from pynput import mouse
 
@@ -42,32 +44,35 @@ def on_move(x, y):
     next_action = np.array([xnorm, ynorm])
 
 import threading
-current_observation = np.zeros(5)    
+current_observation = np.zeros(13, dtype=np.float32)    
 eef_lock = threading.Lock()
 eef_time = time.time()
 def eef_pose(data):
     global current_observation, eef_time
-    # NOTE: ioda has many commented lines that should be referenced when adding state
-    # TODO: this should just be a pose message.
-    # augmented with velocity:
-    x_pose = data.base.tool_pose_x 
-    y_pose = data.base.tool_pose_y 
-    z_pose = data.base.tool_pose_z
+    # # NOTE: ioda has many commented lines that should be referenced when adding state
+    # # TODO: this should just be a pose message.
+    # # augmented with velocity:
+    # x_pose = data.base.tool_pose_x 
+    # y_pose = data.base.tool_pose_y 
+    # z_pose = data.base.tool_pose_z
 
     with eef_lock:
-        current_observation[0] = x_pose
-        current_observation[1] = y_pose
-        current_observation[2] = z_pose
-        try:
-            current_observation[3] = data.interconnect.oneof_tool_feedback.gripper_feedback[0].motor[0].position
-        except:
-            current_observation[3] = 0.0
-            print("ERROR: No gripper feedback received.")
-        current_observation[4] = 0.0 # REWARD
+        current_observation = RosRobot.basecyclicfeedback_to_state(data)
+    #     current_observation[0] = x_pose
+    #     current_observation[1] = y_pose
+    #     current_observation[2] = z_pose
+    #     try:
+    #         current_observation[3] = data.interconnect.oneof_tool_feedback.gripper_feedback[0].motor[0].position
+    #     except:
+    #         current_observation[3] = 0.0
+    #         print("ERROR: No gripper feedback received.")
+    #     current_observation[4] = 0.0 # REWARD
         
         dt = time.time() - eef_time
         if dt > 5: print(f"WARN: EEF time: {dt} seconds.")
         eef_time = time.time()
+        print(current_observation.dtype)
+
 
 def sync_copy_eef():
     with eef_lock:
@@ -87,7 +92,7 @@ class RosRobot(Robot):
         self.topics = self.config.topics
         self.is_connected = False
         self.logs = {}
-        self.sim = rospy.get_param('/sim', True); print(f"Sim: {self.sim}")
+        self.sim = rospy.get_param('/sim', False); print(f"Sim: {self.sim}")
 
         try:
             rospy.init_node("lerobot", anonymous=True, log_level=rospy.ERROR)
@@ -95,7 +100,7 @@ class RosRobot(Robot):
             print(f"Failed to start ros node!")
             raise RobotDeviceNotConnectedError
 
-        self.robot_name = rospy.get_param('robot_name', 'my_gen3')
+        self.robot_name = rospy.get_param('robot_name', 'my_gen3_lite')
         rospy.Subscriber(self.config.state_topic, BaseCyclic_Feedback, callback=eef_pose)
 
         self.is_connected = False
@@ -112,10 +117,10 @@ class RosRobot(Robot):
                             velocity_control=True,
                             relative_commands=True)
 
-        self.env.reset()
-        # Connect the cameras
+        # self.env.reset()
+        # Connect the cameras # NOTE: needs to be moved. this is for native lerobot data collection from the arm (gen3 lite)
         for name in self.cameras:
-            print(f"cam name", name)
+            print(f"Connecting to camera", name)
             self.cameras[name].connect()
         self.is_connected = True
 
@@ -182,40 +187,33 @@ class RosRobot(Robot):
 
         if self.sim:
             img = torch.randn((640, 480, 3)).float()
-            obs_dict[f"observation.images.top"] = img
+            obs_dict[f"observation.image.top"] = img
             
             if display:
-                cv2.imshow('sim_image', obs_dict[f"observation.images.top"].numpy())
+                cv2.imshow('sim_image', obs_dict[f"observation.image.top"].numpy())
                 cv2.waitKey(1)
         else:
             # Capture images from cameras
             images = {}
             for name in self.cameras:
                 before_camread_t = time.perf_counter()
-                images[name] = self.cameras[name].async_read()
-
-                cv2.imshow(name, images[name]); cv2.waitKey(1);
+                images[name] = cv2.resize(self.cameras[name].async_read(), (96, 96))
 
                 images[name] = torch.from_numpy(images[name])
+
                 self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
                 self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
 
             for name in self.cameras:
-                obs_dict[f"observation.images.{name}"] = images[name]
-                cv2.imshow(name, images[name])
-                cv2.waitKey(1)
+                obs_dict[f"observation.image.{name}"] = images[name]
 
-        # image_keys = [key for key in obs_dict if "image" in key]
-        # for key in image_keys:
-        #     cv2.imshow(key, obs_dict[key].numpy())
-        # cv2.waitKey(1)
         return obs_dict
 
 
     def send_action(self, action):
         # Command the robot to take the action
         self.env.step(action)
-        print(f"RosRobot::send_action {[f'{entry:1.2f}' for entry in action]}")
+        # print(f"RosRobot::send_action {[f'{entry:1.2f}' for entry in action]}")
         return action
 
     def disconnect(self):
@@ -229,6 +227,110 @@ class RosRobot(Robot):
 
         self.is_connected = False
         if self.listener: self.listener.stop()
+
+    @property
+    def camera_features(self):
+        return {k:v for k,v in RosRobot.get_features().items() if 'image' in k}
+    
+    @property
+    def motor_features(self):
+        return {k:v for k,v in RosRobot.get_features().items() if 'state' in k or 'action' in k}
+
+    @staticmethod
+    def basecyclicfeedback_to_state(msg: BaseCyclic_Feedback):
+        gripper_pos = msg.interconnect.oneof_tool_feedback.gripper_feedback[0].motor[0].position
+        tool_pose = msg.base.tool_pose_x, msg.base.tool_pose_y, msg.base.tool_pose_z, msg.base.tool_pose_theta_x, msg.base.tool_pose_theta_y, msg.base.tool_pose_theta_z 
+        tool_v = msg.base.tool_twist_linear_x, msg.base.tool_twist_linear_y, msg.base.tool_twist_linear_z, msg.base.tool_twist_angular_x, msg.base.tool_twist_angular_y, msg.base.tool_twist_angular_z
+        return np.array([*tool_pose, *tool_v, gripper_pos], dtype=np.float32)
+
+    @classmethod
+    # NOTE: This is ugly because the behavior here can deviate from what rosbag.py descripb
+    def convert_rosmsg_to_target_type(cls, msg, feature):
+        # from IPython import embed as ipshell; ipshell()
+        if type(msg) == RosImage:
+            if not hasattr(cls, 'cvbridge'): cls.cvbridge = CvBridge()
+            cvimg = cls.cvbridge.imgmsg_to_cv2(msg)
+            # f = cls.get_features()[feature]
+            # dtype, shape = f['dtype'], f['shape']
+            cvimg_resized = np.array(cv2.resize(cvimg, (96, 96))) # TODO: match config shape
+            cvimg_resized = np.transpose(cvimg_resized, axes=[2, 0, 1])
+            # print(cvimg.shape, cvimg_resized.shape)
+            return cvimg_resized
+        elif type(msg) == BaseCyclic_Feedback:
+            state = RosRobot.basecyclicfeedback_to_state(msg)
+            return state
+        elif type(msg) == Joy: 
+            gripper_state = 1.0 if msg.buttons[0] else 0 #TODO: make continuous and align with gripper direction
+            gripper_state = -1.0 if msg.buttons[1] else 0
+            return np.array([*msg.axes, gripper_state])
+        elif type(msg) in [Float32, Int8]:
+            return np.float32(msg.data)
+        elif type(msg) == std_msgs.msg.Bool:
+            return msg.data
+        # elif isinstance(msg, ):
+        #     pass
+        else:
+            raise ValueError(type(msg)) #, msg)
+
+    @classmethod 
+    # NOTE: this should be configurable 
+    def get_features(cls):
+        if not hasattr(cls, 'features'):
+            cls.features = {
+                "observation.state": {
+                    "dtype": "float32",
+                    "shape": (13,),
+                    "names": {
+                        "axes": ["x", "y", "z", "r", "p", "y", "vx", "vy", "vz", "vr", "vp", "vy", "gripper"],
+                    },
+                },
+                "action": {
+                    "dtype": "float32",
+                    "shape": (7,),
+                    "names": {
+                        "axes": ["vx", "vy", "vz", "vr", "vp", "vy" "vgripper"],
+                    },
+                },
+                "next.reward": {
+                    "dtype": "float32",
+                    "shape": (1,),
+                    "names": None,
+                },
+                "next.success": {
+                    "dtype": "bool",
+                    "shape": (1,),
+                    "names": None,
+                },
+                # "observation.environment_state": {
+                #     "dtype": "float32",
+                #     "shape": (16,),
+                #     "names": [
+                #         "keypoints",
+                #     ],
+                # },
+                "observation.image.top": {
+                    "dtype": 'image',
+                    "shape": (3, 96, 96),
+                    "names": [
+                        "channel",
+                        "height",
+                        "width",
+                    ],
+                    'fps': 30
+                },
+                "observation.image.bottom": {
+                    "dtype": 'image',
+                    "shape": (3, 96, 96),
+                    "names": [
+                        "channel",
+                        "height",
+                        "width",
+                    ],
+                    'fps': 30
+                },
+            }
+        return cls.features
+
 
 if __name__ == '__main__':
     from lerobot.common.robot_devices.cameras.opencv import OpenCVCamera

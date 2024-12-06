@@ -468,12 +468,6 @@ if __name__ == "__main__":
         help="Upload dataset to Hugging Face hub.",
     )
     parser_record.add_argument(
-        "--tags",
-        type=str,
-        nargs="*",
-        help="Add tags to your dataset on the hub.",
-    )
-    parser_record.add_argument(
         "--num-image-writer-processes",
         type=int,
         default=0,
@@ -493,12 +487,6 @@ if __name__ == "__main__":
             "Too many threads might cause unstable teleoperation fps due to main thread being blocked. "
             "Not enough threads might cause low camera fps."
         ),
-    )
-    parser_record.add_argument(
-        "--force-override",
-        type=int,
-        default=0,
-        help="By default, data recording is resumed. When set to 1, delete the local directory and start data recording from scratch.",
     )
     parser_record.add_argument(
         "-p",
