@@ -270,7 +270,7 @@ def main():
     repo_id = kwargs.pop("repo_id")
     root = kwargs.pop("root")
 
-    logging.info("Loading dataset")
+    logging.info(f"Loading dataset {repo_id=} {root=}")
     dataset = LeRobotDataset(repo_id, root=root, local_files_only=True)
 
     visualize_dataset(dataset, **vars(args))

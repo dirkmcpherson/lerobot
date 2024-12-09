@@ -4,14 +4,18 @@ cameras:
     _target_: lerobot.common.robot_devices.cameras.opencv.OpenCVCamera
     camera_index: 2
     fps: 30
-    width: 176 #640
-    height: 144 # 480
+    # width: 176 #640
+    # height: 144 # 480
+    width: 640
+    height: 480
   bottom:
     _target_: lerobot.common.robot_devices.cameras.opencv.OpenCVCamera
     camera_index: 0
     fps: 30
-    width: 176 # 640
-    height: 144 # 480
+    # width: 176 # 640
+    # height: 144 # 480
+    width: 640
+    height: 480
 
 topics:
   observation:
@@ -28,8 +32,8 @@ topics:
   next:
     reward: 
       topic: 'reward'
-      # msg_type: 'std_msgs/Float32'
-      msg_type: 'std_msgs/Int8'
+      msg_type: 'std_msgs/Float32'
+      # msg_type: 'std_msgs/Int8'
     success:
       topic: 'success'
       msg_type: 'std_msgs/Bool'

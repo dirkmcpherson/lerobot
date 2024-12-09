@@ -49,29 +49,12 @@ eef_lock = threading.Lock()
 eef_time = time.time()
 def eef_pose(data):
     global current_observation, eef_time
-    # # NOTE: ioda has many commented lines that should be referenced when adding state
-    # # TODO: this should just be a pose message.
-    # # augmented with velocity:
-    # x_pose = data.base.tool_pose_x 
-    # y_pose = data.base.tool_pose_y 
-    # z_pose = data.base.tool_pose_z
 
     with eef_lock:
         current_observation = RosRobot.basecyclicfeedback_to_state(data)
-    #     current_observation[0] = x_pose
-    #     current_observation[1] = y_pose
-    #     current_observation[2] = z_pose
-    #     try:
-    #         current_observation[3] = data.interconnect.oneof_tool_feedback.gripper_feedback[0].motor[0].position
-    #     except:
-    #         current_observation[3] = 0.0
-    #         print("ERROR: No gripper feedback received.")
-    #     current_observation[4] = 0.0 # REWARD
-        
         dt = time.time() - eef_time
         if dt > 5: print(f"WARN: EEF time: {dt} seconds.")
         eef_time = time.time()
-        print(current_observation.dtype)
 
 
 def sync_copy_eef():
@@ -206,6 +189,7 @@ class RosRobot(Robot):
 
             for name in self.cameras:
                 obs_dict[f"observation.image.{name}"] = images[name]
+
 
         return obs_dict
 

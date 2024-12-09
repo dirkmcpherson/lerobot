@@ -349,7 +349,7 @@ def replay(
 ):
     # TODO(rcadene, aliberts): refactor with control_loop, once `dataset` is an instance of LeRobotDataset
     # TODO(rcadene): Add option to record logs
-
+    print(f"Loading dataset {repo_id=} {root=}")
     dataset = LeRobotDataset(repo_id, root=root, episodes=[episode], local_files_only=local_files_only)
     actions = dataset.hf_dataset.select_columns("action")
 

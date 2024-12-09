@@ -128,7 +128,7 @@ def main(repo_id: str, push_to_hub: bool = True):
     signal.signal(signal.SIGINT, handle_sigint)
 
     ## Outer loop 
-    rate = rospy.Rate(FPS); stale_msg_threshold = 0.1 # no messages older than this 
+    stale_msg_threshold = 0.1 # no messages older than this 
     global EP_COMPLETE
     break_loop = False
     EP_COMPLETE = False # just to start us off # NOTE: this flag is used to get us in and out of loops, so it's only aptly named during operation
@@ -148,31 +148,42 @@ def main(repo_id: str, push_to_hub: bool = True):
                 rospy.Subscriber(topic, msg_class, callback=partial(callback, queue=subscriber_queues[topic], feature=feature), queue_size=1)
         ##
 
-        action_topic = [k for k, v in topic_to_feature_map.items() if v == 'action'][0]; print(f"{action_topic=}")
+        t0 = rospy.get_time()
+        frame = {}; dropped_messages = 0
+        wall_time = None
         while not EP_COMPLETE and not FINISHED:
-            frame = {}; valid = True; dropped_messages = 0
-            wall_time = rospy.Time.now()
+            rospy.sleep(0.01)
+            valid = True
             # NOTE: We align with action frames, because they are the limiting factor in teleop data. This is another extremely specific implementation that needs to be abstracted.
-            if all([len(v) > 0 for k,v in subscriber_queues.items()]):
-                # TODO: we _must_ check for stale timestamps if we're doing it this 
+            available = [len(v) > 0 for k,v in subscriber_queues.items()]
+            if all(available):
                 for k,v in subscriber_queues.items():
                     data, timestamp = v.pop()
-                    if (wall_time - timestamp).to_sec() > stale_msg_threshold:
+                    if wall_time is not None and (wall_time - timestamp).to_sec() > stale_msg_threshold:
                         valid = False; break
                     else: 
                         frame[topic_to_feature_map[k]] = data
-            else: continue
+            elif any(available):
+                # for k,v in subscriber_queues.items():
+                #     if len(v) == 0: print(f'{k} empty')
+                # print('--'*30)
+                continue
+            else: 
+                continue
 
             if valid: 
-                # print(f'adding valid frame')
                 n_frames += 1
-                if n_frames % 30 == 0: print(f"Added frame {n_frames}. {dropped_messages=}")
+                period = 10
+                if n_frames % period == 0:
+                    print(f"Added frame {n_frames}. {dropped_messages=}. {rospy.get_time() - t0:1.2f} for {period} frames ({(rospy.get_time() - t0)/period:1.2f}) sec / frame")
+                    t0 = rospy.get_time()
                 dataset.add_frame(frame)
+                frame = {}
+                wall_time = rospy.Time.now()
             else:
+                wall_time = rospy.Time.now()
                 dropped_messages += len(frame)
-                # if dropped_messages > 10 and dropped_messages % 100 == 0:
-                #     print(f"WARN: {dropped_messages=}")
-            rate.sleep()
+                frame = {}
 
         if not n_frames:
             dataset.save_episode(TASK, encode_videos=False)
@@ -182,6 +193,8 @@ def main(repo_id: str, push_to_hub: bool = True):
 
     dataset.consolidate()
 
+    print(f"Hopefully wrote to {repo_id=}")
+
     if push_to_hub:
         dataset.push_to_hub()
 
@@ -190,7 +203,3 @@ if __name__ == "__main__":
     # To try this script, modify the repo id with your own HuggingFace user (e.g cadene/pusht)
     repo_id = "js"
     main(repo_id=repo_id, push_to_hub=False)
-
-    # Uncomment if you want to load the local dataset and explore it
-    # dataset = LeRobotDataset(repo_id=repo_id, local_files_only=True)
-    # breakpoint()
