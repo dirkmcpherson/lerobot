@@ -47,6 +47,7 @@ import os
 global EP_COMPLETE
 EP_COMPLETE = False
 def ep_complete_cb(msg: std_msgs.msg.Bool):
+    print(f"Episode complete msg recieved: {msg.data}")
     global EP_COMPLETE
     EP_COMPLETE = msg.data
 
@@ -88,6 +89,8 @@ def main(repo_id: str, push_to_hub: bool = True):
     next_uid = get_next_available_user_ind(repo_id)
     repo_id = get_filename(repo_id, next_uid)
 
+    print(f"Starting with {repo_id=}")
+
     rospy.Subscriber('/playback_complete', std_msgs.msg.Bool, callback=ep_complete_cb)
 
 
@@ -114,6 +117,7 @@ def main(repo_id: str, push_to_hub: bool = True):
         # dtype, shape = f['dtype'], f['shape']
         # assert type(f) == np.dtype(dtype)
         wall_ts = rospy.Time.now()
+        # print(feature, type(data), data.dtype if hasattr(data, 'dtype') else '', data.shape if hasattr(data, 'shape') else '')
         queue.append((data, wall_ts))
 
     import signal
@@ -163,17 +167,11 @@ def main(repo_id: str, push_to_hub: bool = True):
                         valid = False; break
                     else: 
                         frame[topic_to_feature_map[k]] = data
-            elif any(available):
-                # for k,v in subscriber_queues.items():
-                #     if len(v) == 0: print(f'{k} empty')
-                # print('--'*30)
-                continue
-            else: 
-                continue
+            else: continue
 
             if valid: 
                 n_frames += 1
-                period = 10
+                period = 100
                 if n_frames % period == 0:
                     print(f"Added frame {n_frames}. {dropped_messages=}. {rospy.get_time() - t0:1.2f} for {period} frames ({(rospy.get_time() - t0)/period:1.2f}) sec / frame")
                     t0 = rospy.get_time()

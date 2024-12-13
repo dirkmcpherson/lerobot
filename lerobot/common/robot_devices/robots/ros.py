@@ -244,13 +244,23 @@ class RosRobot(Robot):
             state = RosRobot.basecyclicfeedback_to_state(msg)
             return state
         elif type(msg) == Joy: 
-            gripper_state = 1.0 if msg.buttons[0] else 0 #TODO: make continuous and align with gripper direction
-            gripper_state = -1.0 if msg.buttons[1] else 0
-            return np.array([*msg.axes, gripper_state])
+            # NOTE: unfortunately this depends on the input device.
+            # FOR MOUSE & KEYBOARD
+            # gripper_state = 1.0 if msg.buttons[0] else 0 #TODO: make continuous and align with gripper direction
+            # gripper_state = -1.0 if msg.buttons[1] else 0
+            # return np.array([*msg.axes, gripper_state], dtype=np.float32)
+
+            # FOR XBOX CONTROLLER
+            gripper_vel = -msg.buttons[4] if msg.buttons[4] else msg.buttons[5]
+            x, y = msg.axes[0], msg.axes[1]
+            z = msg.axes[4]
+            r, p, yaw = 0., 0., msg.axes[3]
+            return np.array([x, y, z, r, p, yaw, gripper_vel], dtype=np.float32)
+
         elif type(msg) in [Float32, Int8]:
             return np.float32(msg.data)
         elif type(msg) == std_msgs.msg.Bool:
-            return msg.data
+            return np.float32(msg.data)
         # elif isinstance(msg, ):
         #     pass
         else:

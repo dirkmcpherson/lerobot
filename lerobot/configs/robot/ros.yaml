@@ -24,7 +24,7 @@ topics:
         topic: cam_dev_video0
         msg_type: 'sensor_msgs/Image'
       bottom:
-        topic: cam_dev_video2
+        topic: cam_dev_video4
         msg_type: 'sensor_msgs/Image'
     state: 
       topic: 'my_gen3_lite/base_feedback'
