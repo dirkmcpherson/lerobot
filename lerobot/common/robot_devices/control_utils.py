@@ -266,6 +266,7 @@ def control_loop(
             # print(f'obs_time ', dt_s); t0 = time.perf_counter()
 
             if policy is not None:
+
                 pred_action = predict_action(observation, policy, device, use_amp)
                 dt_s = time.perf_counter() - t0
                 # print(f'action_time ', dt_s); t0 = time.perf_counter()

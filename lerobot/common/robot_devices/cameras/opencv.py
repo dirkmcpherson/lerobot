@@ -262,6 +262,7 @@ class OpenCVCamera:
             if isinstance(self.camera_index, int):
                 self.port = Path(f"/dev/video{self.camera_index}")
             elif isinstance(self.camera_index, str) and is_valid_unix_path(self.camera_index):
+                print(f"Provided camera_index is a valid unix path: {self.camera_index}")
                 self.port = Path(self.camera_index)
                 # Retrieve the camera index from a potentially symlinked path
                 self.camera_index = get_camera_index_from_unix_port(self.port)
@@ -309,7 +310,7 @@ class OpenCVCamera:
             # when other threads are used to save the images.
             cv2.setNumThreads(1)
 
-        camera_idx = f"/dev/video{self.camera_index}" if platform.system() == "Linux" else self.camera_index
+        camera_idx = f"/dev/video{self.camera_index}" if (isinstance(self.camera_index, int) and platform.system() == "Linux") else self.camera_index
         # First create a temporary camera trying to access `camera_index`,
         # and verify it is a valid camera by calling `isOpened`.
         tmp_camera = cv2.VideoCapture(camera_idx)

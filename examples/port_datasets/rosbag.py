@@ -131,6 +131,10 @@ def main(repo_id: str, push_to_hub: bool = True):
     # Set the custom signal handler
     signal.signal(signal.SIGINT, handle_sigint)
 
+    import time
+    START_TIME = time.time()
+    MAX_RUNTIME = 60*60*1.5 # 1.5 hours
+
     ## Outer loop 
     stale_msg_threshold = 0.1 # no messages older than this 
     global EP_COMPLETE
@@ -156,7 +160,7 @@ def main(repo_id: str, push_to_hub: bool = True):
         frame = {}; dropped_messages = 0
         wall_time = None
         while not EP_COMPLETE and not FINISHED:
-            rospy.sleep(0.01)
+            rospy.sleep(0.001)
             valid = True
             # NOTE: We align with action frames, because they are the limiting factor in teleop data. This is another extremely specific implementation that needs to be abstracted.
             available = [len(v) > 0 for k,v in subscriber_queues.items()]
@@ -183,11 +187,24 @@ def main(repo_id: str, push_to_hub: bool = True):
                 dropped_messages += len(frame)
                 frame = {}
 
-        if not n_frames:
+            if time.time() - START_TIME > MAX_RUNTIME:
+                print(f"Max runtime reached. Exiting.")
+                break_loop = True
+                FINISHED = True
+                break
+
+        if n_frames:
+            print(f"Saving episode.")
             dataset.save_episode(TASK, encode_videos=False)
             
         print(f"Finished episode. {dropped_messages=}")
         EP_COMPLETE = False
+
+        if time.time() - START_TIME > MAX_RUNTIME:
+            print(f"Max runtime reached. Exiting.")
+            break_loop = True
+            FINISHED = True
+            break
 
     dataset.consolidate()
 

@@ -56,7 +56,6 @@ def eef_pose(data):
         if dt > 5: print(f"WARN: EEF time: {dt} seconds.")
         eef_time = time.time()
 
-
 def sync_copy_eef():
     with eef_lock:
         return current_observation.copy()
@@ -84,12 +83,19 @@ class RosRobot(Robot):
             raise RobotDeviceNotConnectedError
 
         self.robot_name = rospy.get_param('robot_name', 'my_gen3_lite')
-        rospy.Subscriber(self.config.state_topic, BaseCyclic_Feedback, callback=eef_pose)
+
+        print(f"Subscribing to state topic: {self.config.state_topic}")
+        rospy.Subscriber('/my_gen3_lite/base_feedback', BaseCyclic_Feedback, callback=eef_pose)
+        # rospy.Subscriber('/reward', std_msgs.msg.Float32, callback=self.CB)
+
 
         self.is_connected = False
         self.env = None
         self.listener = None
         self.robot_type = 'ros'
+
+    def CB(self, data):
+        print(f"Received data: {data}")
 
     def connect(self):
         ## TODO: The arm is a node and you're sending Twist messages on the 'robot_control' topic
@@ -98,7 +104,9 @@ class RosRobot(Robot):
                             sim=self.sim, 
                             action_duration=0.1,
                             velocity_control=True,
-                            relative_commands=True)
+                            relative_commands=True,
+                            max_action=0.11,
+                            min_action=-0.11)
 
         # self.env.reset()
         # Connect the cameras # NOTE: needs to be moved. this is for native lerobot data collection from the arm (gen3 lite)
@@ -160,9 +168,12 @@ class RosRobot(Robot):
         return obs_dict, action_dict
 
     def capture_observation(self, display=False):
+        rospy.sleep(0.01)
         before_eef_read_t = time.perf_counter()
         state = torch.from_numpy(sync_copy_eef())
         self.logs[f'eef_read'] = time.perf_counter() - before_eef_read_t
+
+        # print(f"lerobotros::capture_observation: {state}")
 
         # Output dictionnaries
         obs_dict = {}
@@ -190,14 +201,13 @@ class RosRobot(Robot):
             for name in self.cameras:
                 obs_dict[f"observation.image.{name}"] = images[name]
 
-
         return obs_dict
 
 
     def send_action(self, action):
         # Command the robot to take the action
         self.env.step(action)
-        # print(f"RosRobot::send_action {[f'{entry:1.2f}' for entry in action]}")
+        print(f"RosRobot::send_action {[f'{entry:1.2f}' for entry in action]}")
         return action
 
     def disconnect(self):
@@ -245,17 +255,20 @@ class RosRobot(Robot):
             return state
         elif type(msg) == Joy: 
             # NOTE: unfortunately this depends on the input device.
-            # FOR MOUSE & KEYBOARD
-            # gripper_state = 1.0 if msg.buttons[0] else 0 #TODO: make continuous and align with gripper direction
-            # gripper_state = -1.0 if msg.buttons[1] else 0
-            # return np.array([*msg.axes, gripper_state], dtype=np.float32)
 
             # FOR XBOX CONTROLLER
-            gripper_vel = -msg.buttons[4] if msg.buttons[4] else msg.buttons[5]
-            x, y = msg.axes[0], msg.axes[1]
-            z = msg.axes[4]
-            r, p, yaw = 0., 0., msg.axes[3]
-            return np.array([x, y, z, r, p, yaw, gripper_vel], dtype=np.float32)
+            if len(msg.buttons) >= 6:
+                gripper_vel = -msg.buttons[4] if msg.buttons[4] else msg.buttons[5]
+                x, y = msg.axes[0], msg.axes[1]
+                z = msg.axes[4]
+                r, p, yaw = 0., 0., msg.axes[3]
+                return np.array([x, y, z, r, p, yaw, gripper_vel], dtype=np.float32)
+            else:
+                # FOR MOUSE & KEYBOARD
+                gripper_state = 1.0 if msg.buttons[0] else 0 #TODO: make continuous and align with gripper direction
+                gripper_state = -1.0 if msg.buttons[1] else 0
+                return np.array([*msg.axes, gripper_state], dtype=np.float32)
+
 
         elif type(msg) in [Float32, Int8]:
             return np.float32(msg.data)
