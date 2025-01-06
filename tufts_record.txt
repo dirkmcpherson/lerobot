@@ -22,5 +22,9 @@ wandb.enable=false
 
 
 python lerobot/scripts/train.py dataset_repo_id=js/ros_test policy=dp_ros_real env=ros_real hydra.run.dir=outputs/train/dp_ros_test hydra.job.name=dp_ros_test device=cuda wandb.enable=false
-LEROBOT_HOME='' python lerobot/scripts/train.py dataset_repo_id=js/ros_007 policy=diffusion_ros_real env=ros_real hydra.run.dir=outputs/train/dp_ros_007 hydra.job.name=dp_ros_007 device=cuda wandb.enable=false training.save_freq=1000
-rm -rf data/ros && python lerobot/scripts/control_robot.py record --fps 10 --root data/ros --repo-id 'js/eval_ros_007' --num-episodes 2 --warmup-time-s 2 --episode-time-s 120 --reset-time-s 10 -p outputs/train/dp_ros_007/checkpoints/010000/pretrained_model --single-task 'Pick up a cup.' --robot-path lerobot/configs/robot/ros.yaml
+
+LEROBOT_HOME='' python lerobot/scripts/train.py dataset_repo_id=js/ros_013 policy=diffusion_ros_real env=ros_real hydra.run.dir=outputs/train/dp_ros_013 hydra.job.name=dp_ros_013 device=cuda wandb.enable=false training.save_freq=2000
+rm -rf data/ros && python lerobot/scripts/control_robot.py record --fps 10 --root data/ros --repo-id 'js/eval_ros_013' --num-episodes 1 --warmup-time-s 1 --episode-time-s 120 --reset-time-s 10 -p outputs/train/dp_ros_013/checkpoints/034000/pretrained_model --single-task 'Pick up a cup.' --robot-path lerobot/configs/robot/ros.yaml
+
+LEROBOT_HOME='' python lerobot/scripts/train.py dataset_repo_id=js/ros_014 policy=diffusion_ros_real env=ros_real hydra.run.dir=outputs/train/dp_ros_014 hydra.job.name=dp_ros_014 device=cuda wandb.enable=false training.save_freq=10000
+rm -rf data/ros && python lerobot/scripts/control_robot.py record --fps 10 --root data/ros --repo-id 'js/eval_ros_014' --num-episodes 1 --warmup-time-s 1 --episode-time-s 120 --reset-time-s 10 -p outputs/train/dp_ros_014/checkpoints/034000/pretrained_model --single-task 'Pick up a cup.' --robot-path lerobot/configs/robot/ros.yaml

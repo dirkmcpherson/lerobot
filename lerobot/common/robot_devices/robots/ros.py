@@ -88,11 +88,19 @@ class RosRobot(Robot):
         rospy.Subscriber('/my_gen3_lite/base_feedback', BaseCyclic_Feedback, callback=eef_pose)
         # rospy.Subscriber('/reward', std_msgs.msg.Float32, callback=self.CB)
 
+        # make a top and bottom video publisher for visualization
+        self.bridge = CvBridge()
+        self.pub_top = rospy.Publisher('/top_image', RosImage, queue_size=10)
+        self.pub_bottom = rospy.Publisher('/bottom_image', RosImage, queue_size=10)
+
 
         self.is_connected = False
         self.env = None
         self.listener = None
         self.robot_type = 'ros'
+
+        self.crop_dim = 700
+        self.crop_left_offset = 200
 
     def CB(self, data):
         print(f"Received data: {data}")
@@ -191,9 +199,23 @@ class RosRobot(Robot):
             images = {}
             for name in self.cameras:
                 before_camread_t = time.perf_counter()
-                images[name] = cv2.resize(self.cameras[name].async_read(), (96, 96))
 
+                img = self.cameras[name].async_read()
+                if self.crop_dim > 0:
+                    # crop from the right edge for TOP image
+                    if name == 'top':
+                        img = img[:self.crop_dim, self.crop_left_offset:self.crop_dim+self.crop_left_offset]
+                        # self.pub_top.publish(self.bridge.cv2_to_imgmsg(img, encoding="bgr8"))
+                    else:
+                        # crop from the left, no offset for BOTTOM image
+                        img = img[:self.crop_dim, -self.crop_dim:]
+                        # self.pub_bottom.publish(self.bridge.cv2_to_imgmsg(img, encoding="bgr8"))
+
+
+                images[name] = cv2.resize(img, (96, 96))
                 images[name] = torch.from_numpy(images[name])
+
+                # cv2.imshow(f'{name} {img.shape}', img); cv2.waitKey(1)
 
                 self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
                 self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
