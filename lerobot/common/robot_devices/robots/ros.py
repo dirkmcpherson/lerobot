@@ -153,7 +153,7 @@ class RosRobot(Robot):
                 "ManipulatorRobot is not connected. You need to run `robot.connect()`."
             )
         
-        action = [0, 0, 0, 0, 0, 0, 0]
+        action = [0, 0, 0, 0, 0]
         if HARDCODE_ACTION:=True:
             obs_dict = self.capture_observation()
             print(f"WARN: hardcoded action")
@@ -323,9 +323,9 @@ class RosRobot(Robot):
                 },
                 "action": {
                     "dtype": "float32",
-                    "shape": (7,),
+                    "shape": (5,),
                     "names": {
-                        "axes": ["vx", "vy", "vz", "vr", "vp", "vy" "vgripper"],
+                        "axes": ["vx", "vy", "vz", "vy", "vgripper"],
                     },
                 },
                 "next.reward": {
