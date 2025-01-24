@@ -144,7 +144,7 @@ class DiffusionPolicy(
             self._queues["action"].extend(actions.transpose(0, 1))
 
             ## JS
-            # Add a zero velocity command at the end to deal with the delay required to generate these actions
+            # Add a zero velocity command at the end to deal with the delay required to generate these actions (issue a zero-velocity command before we pause)
             self._queues['action'].append(torch.zeros_like(self._queues["action"][-1]))
             # keep the manipulator value the same
             self._queues['action'][-1][-1] = self._queues['action'][-2][-1]

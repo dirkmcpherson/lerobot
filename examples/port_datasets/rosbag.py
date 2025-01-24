@@ -166,6 +166,9 @@ def main(repo_id: str, push_to_hub: bool = True):
             available = [len(v) > 0 for k,v in subscriber_queues.items()]
             if all(available):
                 for k,v in subscriber_queues.items():
+                    if "video" in k:
+                        img = np.transpose(v[0][0], axes=[1, 2, 0])
+                        cv2.imwrite(f'/home/j/workspace/{k}.png', img)
                     data, timestamp = v.pop()
                     if wall_time is not None and (wall_time - timestamp).to_sec() > stale_msg_threshold:
                         valid = False; break

@@ -205,15 +205,17 @@ class RosRobot(Robot):
                     # crop from the right edge for TOP image
                     if name == 'top':
                         img = img[:self.crop_dim, self.crop_left_offset:self.crop_dim+self.crop_left_offset]
-                        # self.pub_top.publish(self.bridge.cv2_to_imgmsg(img, encoding="bgr8"))
+                        img = cv2.resize(img, (96, 96))
+                        self.pub_top.publish(self.bridge.cv2_to_imgmsg(img, encoding="bgr8"))
                     else:
                         # crop from the left, no offset for BOTTOM image
                         img = img[:self.crop_dim, -self.crop_dim:]
-                        # self.pub_bottom.publish(self.bridge.cv2_to_imgmsg(img, encoding="bgr8"))
+                        img = cv2.resize(img, (96, 96))
+                        self.pub_bottom.publish(self.bridge.cv2_to_imgmsg(img, encoding="bgr8"))
 
+                # images[name] = cv2.resize(img, (96, 96))
 
-                images[name] = cv2.resize(img, (96, 96))
-                images[name] = torch.from_numpy(images[name])
+                images[name] = torch.from_numpy(img)
 
                 # cv2.imshow(f'{name} {img.shape}', img); cv2.waitKey(1)
 
@@ -229,7 +231,9 @@ class RosRobot(Robot):
     def send_action(self, action):
         # Command the robot to take the action
         self.env.step(action)
-        print(f"RosRobot::send_action {[f'{entry:1.2f}' for entry in action]}")
+        print(f"RosRobot::send_action {[f'{entry:+1.2f}' for entry in action]}")
+        if action[-1] < -0.5:
+            print(f"Closing gripper")
         return action
 
     def disconnect(self):
@@ -271,6 +275,10 @@ class RosRobot(Robot):
             cvimg_resized = np.array(cv2.resize(cvimg, (96, 96))) # TODO: match config shape
             cvimg_resized = np.transpose(cvimg_resized, axes=[2, 0, 1])
             # print(cvimg.shape, cvimg_resized.shape)
+            
+            # save out the image
+            # cv2.imwrite(f'/home/j/workspace/{feature}.png', cvimg_resized)
+
             return cvimg_resized
         elif type(msg) == BaseCyclic_Feedback:
             state = RosRobot.basecyclicfeedback_to_state(msg)
@@ -281,7 +289,7 @@ class RosRobot(Robot):
             # FOR XBOX CONTROLLER
             if len(msg.buttons) >= 6:
                 gripper_vel = -msg.buttons[4] if msg.buttons[4] else msg.buttons[5]
-                x, y = msg.axes[0], msg.axes[1]
+                x, y = msg.axes[0], msg.axes[1] # NOTE: this is wrong actually, and should be switched. for RSS we're manually switching the dimensions in the robot control loop
                 z = msg.axes[4]
                 r, p, yaw = 0., 0., msg.axes[3]
                 return np.array([x, y, z, r, p, yaw, gripper_vel], dtype=np.float32)
