@@ -97,7 +97,9 @@ class DiffusionPolicy(
         """Clear observation and action queues. Should be called on `env.reset()`"""
         self._queues = {
             "observation.state": deque(maxlen=self.config.n_obs_steps),
-            "action": deque(maxlen=self.config.n_action_steps + 1), # +1 to handle adding the zero for velocity commands
+            "action": deque(maxlen=self.config.n_action_steps), # +1 to handle adding the zero for velocity commands
+            # "action": deque(maxlen=self.config.n_action_steps + 1), # JS +1 to handle adding the zero for velocity commands
+
         } 
         if len(self.expected_image_keys) > 0:
             self._queues["observation.images"] = deque(maxlen=self.config.n_obs_steps)
@@ -145,9 +147,9 @@ class DiffusionPolicy(
 
             ## JS
             # Add a zero velocity command at the end to deal with the delay required to generate these actions (issue a zero-velocity command before we pause)
-            self._queues['action'].append(torch.zeros_like(self._queues["action"][-1]))
+            # self._queues['action'].append(torch.zeros_like(self._queues["action"][-1]))
             # keep the manipulator value the same
-            self._queues['action'][-1][-1] = self._queues['action'][-2][-1]
+            # self._queues['action'][-1][-1] = self._queues['action'][-2][-1]
 
         action = self._queues["action"].popleft()
         return action
