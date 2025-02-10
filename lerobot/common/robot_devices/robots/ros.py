@@ -153,7 +153,7 @@ class RosRobot(Robot):
                 "ManipulatorRobot is not connected. You need to run `robot.connect()`."
             )
         
-        action = [0, 0, 0, 0, 0, 0, 0]
+        action = [0, 0, 0, 0, 0]
         if HARDCODE_ACTION:=True:
             obs_dict = self.capture_observation()
             print(f"WARN: hardcoded action")
@@ -205,15 +205,22 @@ class RosRobot(Robot):
                     # crop from the right edge for TOP image
                     if name == 'top':
                         img = img[:self.crop_dim, self.crop_left_offset:self.crop_dim+self.crop_left_offset]
-                        # self.pub_top.publish(self.bridge.cv2_to_imgmsg(img, encoding="bgr8"))
+                        img = cv2.resize(img, (96, 96))
+                        self.pub_top.publish(self.bridge.cv2_to_imgmsg(img, encoding="bgr8"))
                     else:
                         # crop from the left, no offset for BOTTOM image
                         img = img[:self.crop_dim, -self.crop_dim:]
-                        # self.pub_bottom.publish(self.bridge.cv2_to_imgmsg(img, encoding="bgr8"))
+                        img = cv2.resize(img, (96, 96))
+                        self.pub_bottom.publish(self.bridge.cv2_to_imgmsg(img, encoding="bgr8"))
 
+                # images[name] = cv2.resize(img, (96, 96))
 
-                images[name] = cv2.resize(img, (96, 96))
-                images[name] = torch.from_numpy(images[name])
+                # convert the image to a 3 channel grayscale
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                img = np.stack([img]*3, axis=-1)
+                ##
+
+                images[name] = torch.from_numpy(img)
 
                 # cv2.imshow(f'{name} {img.shape}', img); cv2.waitKey(1)
 
@@ -229,7 +236,7 @@ class RosRobot(Robot):
     def send_action(self, action):
         # Command the robot to take the action
         self.env.step(action)
-        print(f"RosRobot::send_action {[f'{entry:1.2f}' for entry in action]}")
+        print(f"RosRobot::send_action {[f'{entry:+1.2f}' for entry in action]}")
         return action
 
     def disconnect(self):
@@ -257,7 +264,9 @@ class RosRobot(Robot):
         gripper_pos = msg.interconnect.oneof_tool_feedback.gripper_feedback[0].motor[0].position
         tool_pose = msg.base.tool_pose_x, msg.base.tool_pose_y, msg.base.tool_pose_z, msg.base.tool_pose_theta_x, msg.base.tool_pose_theta_y, msg.base.tool_pose_theta_z 
         tool_v = msg.base.tool_twist_linear_x, msg.base.tool_twist_linear_y, msg.base.tool_twist_linear_z, msg.base.tool_twist_angular_x, msg.base.tool_twist_angular_y, msg.base.tool_twist_angular_z
-        return np.array([*tool_pose, *tool_v, gripper_pos], dtype=np.float32)
+        # return np.array([*tool_pose, *tool_v, gripper_pos], dtype=np.float32)
+        return np.array([*tool_pose, gripper_pos], dtype=np.float32)
+
 
     @classmethod
     # NOTE: This is ugly because the behavior here can deviate from what rosbag.py descripb
@@ -270,7 +279,15 @@ class RosRobot(Robot):
             # dtype, shape = f['dtype'], f['shape']
             cvimg_resized = np.array(cv2.resize(cvimg, (96, 96))) # TODO: match config shape
             cvimg_resized = np.transpose(cvimg_resized, axes=[2, 0, 1])
-            # print(cvimg.shape, cvimg_resized.shape)
+            print(cvimg_resized.shape)
+
+            # if the image only has one channel, we need to add two more
+            if cvimg_resized.shape[0] == 1:
+                cvimg_resized = np.concatenate([cvimg_resized, cvimg_resized, cvimg_resized], axis=0)
+            
+            # save out the image
+            # cv2.imwrite(f'/home/j/workspace/{feature}.png', cvimg_resized)
+
             return cvimg_resized
         elif type(msg) == BaseCyclic_Feedback:
             state = RosRobot.basecyclicfeedback_to_state(msg)
@@ -281,7 +298,7 @@ class RosRobot(Robot):
             # FOR XBOX CONTROLLER
             if len(msg.buttons) >= 6:
                 gripper_vel = -msg.buttons[4] if msg.buttons[4] else msg.buttons[5]
-                x, y = msg.axes[0], msg.axes[1]
+                x, y = msg.axes[0], msg.axes[1] # NOTE: this is wrong actually, and should be switched. for RSS we're manually switching the dimensions in the robot control loop
                 z = msg.axes[4]
                 r, p, yaw = 0., 0., msg.axes[3]
                 return np.array([x, y, z, r, p, yaw, gripper_vel], dtype=np.float32)
@@ -308,16 +325,17 @@ class RosRobot(Robot):
             cls.features = {
                 "observation.state": {
                     "dtype": "float32",
-                    "shape": (13,),
+                    # "shape": (13,),
+                    "shape": (4,),
                     "names": {
-                        "axes": ["x", "y", "z", "r", "p", "y", "vx", "vy", "vz", "vr", "vp", "vy", "gripper"],
+                        "axes": ["x", "y", "z", "gripper"],
                     },
                 },
                 "action": {
                     "dtype": "float32",
-                    "shape": (7,),
+                    "shape": (5,),
                     "names": {
-                        "axes": ["vx", "vy", "vz", "vr", "vp", "vy" "vgripper"],
+                        "axes": ["vx", "vy", "vz", "vyaw", "vgripper"],
                     },
                 },
                 "next.reward": {
