@@ -13,10 +13,7 @@ from std_msgs.msg import Float32, Int8
 from gazebo_rl.environments.basic_arm import BasicArm
 from cv_bridge import CvBridge
 import numpy as np
-# from PIL import Image
-import pygame
 
-from pynput import mouse
 
 @dataclass
 class RosRobotConfig:
@@ -60,6 +57,20 @@ def eef_pose(data):
 def sync_copy_eef():
     with eef_lock:
         return current_observation.copy()
+    
+current_joy = Joy()
+joy_lock = threading.Lock()
+def on_joy(data):
+    global current_joy
+    with joy_lock:
+        current_joy = data
+
+def sync_copy_joy():
+    with joy_lock:
+        joy_copy = Joy()
+        joy_copy.axes = current_joy.axes
+        joy_copy.buttons = current_joy.buttons
+        return joy_copy
 
 class RosRobot(Robot):
     def __init__(self,
@@ -87,6 +98,7 @@ class RosRobot(Robot):
 
         print(f"Subscribing to state topic: {self.config.state_topic}")
         rospy.Subscriber('/my_gen3_lite/base_feedback', BaseCyclic_Feedback, callback=eef_pose)
+        rospy.Subscriber('/joy', Joy, callback=on_joy)
         # rospy.Subscriber('/reward', std_msgs.msg.Float32, callback=self.CB)
 
         # make a top and bottom video publisher for visualization
@@ -156,6 +168,7 @@ class RosRobot(Robot):
         # raise NotImplementedError
         pass
 
+
     def teleop_step(
         self, record_data=False
     ) -> None | tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
@@ -164,31 +177,36 @@ class RosRobot(Robot):
                 "ManipulatorRobot is not connected. You need to run `robot.connect()`."
             )
         
-        action = [0, 0, 0, 0, 0]
-        if HARDCODE_ACTION:=False:
-            obs_dict = self.capture_observation()
-            print(f"WARN: hardcoded action")
-            if obs_dict['observation.state'][0] < 0.8:action[0] = 0.05
-            if obs_dict['observation.state'][1] < 0.2:action[1] = 0.05
-        else:
+        joy = sync_copy_joy()
 
-            # grab the joystick data
-            pygame.event.get()
-            action = [self.joystick.get_axis(0), self.joystick.get_axis(1), self.joystick.get_axis(2), self.joystick.get_axis(3), self.joystick.get_axis(4)]
+        CLOSE_BUTTON = 5; OPEN_BUTTON = 4
+        if joy.buttons:
+            if joy.buttons[CLOSE_BUTTON]: action = np.array([0, 0, 0, 0, -1])
+            elif joy.buttons[OPEN_BUTTON]: action = np.array([0, 0, 0, 0, 1])
+            else: action = np.array([joy.axes[1], joy.axes[0], joy.axes[4], joy.axes[3], 0])
+        else: action = np.array([0, 0, 0, 0, 0])
 
-            gripper = 0.9 if self.joystick.get_button(5) else 0.0
-            gripper = -0.9 if self.joystick.get_button(4) else 0.0
+            # vx, vy, vz, vr, vp, vyaw = cmd.twist.linear.x, cmd.twist.linear.y, cmd.twist.linear.z, cmd.twist.angular.x, cmd.twist.angular.y, cmd.twist.angular.z
+            # if abs(vx) > VELOCITY_CAP: vx = VELOCITY_CAP if vx > 0 else -VELOCITY_CAP
+            # if abs(vy) > VELOCITY_CAP: vy = VELOCITY_CAP if vy > 0 else -VELOCITY_CAP
+            # if abs(vz) > VELOCITY_CAP: vz = VELOCITY_CAP if vz > 0 else -VELOCITY_CAP
 
-            action = [action[0], action[1], action[2], action[3], gripper]
-            # Grab the teleoperation data and send it using ::send_action
-            # global next_action
-            # action = [next_action[0], next_action[1], 0, 0, 0, 0, 0]
-            # TODO: Mouse control is fine for on robot verification, but then bring in xbox controller control.
+            # if self._constraints and current_state:
+            #     newx = current_state.base.tool_pose_x + vx * self.buffer_multiplier * self.CARTESIAN_VELOCITY_DURATION
+            #     newy = current_state.base.tool_pose_y + vy * self.buffer_multiplier * self.CARTESIAN_VELOCITY_DURATION
+            #     newz = current_state.base.tool_pose_z + vz * self.buffer_multiplier * self.CARTESIAN_VELOCITY_DURATION
+            #     if (newx < self.minx and vx < 0) or (newx > self.maxx and vx > 0): vx = 0; print(f"WARN: constraining zeroing x velocity. {newx=:1.2f}")
+            #     if (newy < self.miny and vy < 0) or (newy > self.maxy and vy > 0): vy = 0; print(f"WARN: constraining zeroing y velocity. {newy=:1.2f}")
+            #     if (newz < self.minz and vz < 0) or (newz > self.maxz and vz > 0): print(f"WARN: constraining zeroing z velocity. {newz=:1.2f} {vz=:1.2f}"); vz = 0; 
+
+
+            # cmd = [vx,vy,vz,vr,vp,vyaw]
+            # print([f'{entry:+1.1f}' for entry in cmd], f' DT: {time.time() - self.t0:1.2f}   t: {time.time():1.2f}'); self.t0 = time.time()
+            # self._robot.cartesian_velocity_command(cmd, duration=self.CARTESIAN_VELOCITY_DURATION, block=False, radians=True)
+            # print(f"Command ended.")
 
         self.send_action(action)
-
         obs_dict = self.capture_observation()
-
         action_dict = {'action': torch.from_numpy(np.array(action))}
 
         # if not record_data: return
@@ -266,7 +284,7 @@ class RosRobot(Robot):
     def send_action(self, action):
         # Command the robot to take the action
         self.env.step(action)
-        print(f"RosRobot::send_action {[f'{entry:+1.2f}' for entry in action]}")
+        # print(f"RosRobot::send_action {[f'{entry:+1.2f}' for entry in action]}")
         return action
 
     def disconnect(self):
