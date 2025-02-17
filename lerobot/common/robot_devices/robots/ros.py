@@ -14,6 +14,7 @@ from gazebo_rl.environments.basic_arm import BasicArm
 from cv_bridge import CvBridge
 import numpy as np
 # from PIL import Image
+import pygame
 
 from pynput import mouse
 
@@ -102,6 +103,12 @@ class RosRobot(Robot):
         self.crop_dim = 700
         self.crop_left_offset = 200
 
+        # initialize the pygame joystick
+        # pygame.init()
+        # pygame.joystick.init()
+        # self.joystick = pygame.joystick.Joystick(0)
+        # self.joystick.init()
+
     def CB(self, data):
         print(f"Received data: {data}")
 
@@ -120,7 +127,11 @@ class RosRobot(Robot):
         # Connect the cameras # NOTE: needs to be moved. this is for native lerobot data collection from the arm (gen3 lite)
         for name in self.cameras:
             print(f"Connecting to camera", name)
-            self.cameras[name].connect()
+            try:
+                self.cameras[name].connect()
+            except Exception as e:
+                print(f"Failed to connect to camera {name}: ", e)
+
         self.is_connected = True
 
     def reset(self):
@@ -154,15 +165,24 @@ class RosRobot(Robot):
             )
         
         action = [0, 0, 0, 0, 0]
-        if HARDCODE_ACTION:=True:
+        if HARDCODE_ACTION:=False:
             obs_dict = self.capture_observation()
             print(f"WARN: hardcoded action")
             if obs_dict['observation.state'][0] < 0.8:action[0] = 0.05
             if obs_dict['observation.state'][1] < 0.2:action[1] = 0.05
         else:
+
+            # grab the joystick data
+            pygame.event.get()
+            action = [self.joystick.get_axis(0), self.joystick.get_axis(1), self.joystick.get_axis(2), self.joystick.get_axis(3), self.joystick.get_axis(4)]
+
+            gripper = 0.9 if self.joystick.get_button(5) else 0.0
+            gripper = -0.9 if self.joystick.get_button(4) else 0.0
+
+            action = [action[0], action[1], action[2], action[3], gripper]
             # Grab the teleoperation data and send it using ::send_action
-            global next_action
-            action = [next_action[0], next_action[1], 0, 0, 0, 0, 0]
+            # global next_action
+            # action = [next_action[0], next_action[1], 0, 0, 0, 0, 0]
             # TODO: Mouse control is fine for on robot verification, but then bring in xbox controller control.
 
         self.send_action(action)
@@ -200,29 +220,39 @@ class RosRobot(Robot):
             for name in self.cameras:
                 before_camread_t = time.perf_counter()
 
-                img = self.cameras[name].async_read()
                 if self.crop_dim > 0:
                     # crop from the right edge for TOP image
                     if name == 'top':
+                        img = self.cameras[name].async_read()
                         img = img[:self.crop_dim, self.crop_left_offset:self.crop_dim+self.crop_left_offset]
                         img = cv2.resize(img, (96, 96))
                         self.pub_top.publish(self.bridge.cv2_to_imgmsg(img, encoding="bgr8"))
                     else:
-                        # crop from the left, no offset for BOTTOM image
-                        img = img[:self.crop_dim, -self.crop_dim:]
-                        img = cv2.resize(img, (96, 96))
-                        self.pub_bottom.publish(self.bridge.cv2_to_imgmsg(img, encoding="bgr8"))
+                        # img = self.cameras[name].async_read()
+                        # # crop from the left, no offset for BOTTOM image
+                        # img = img[:self.crop_dim, -self.crop_dim:]
+                        # img = cv2.resize(img, (96, 96))
+                        # self.pub_bottom.publish(self.bridge.cv2_to_imgmsg(img, encoding="bgr8"))
+                        img = np.zeros((96, 96, 3), dtype=np.uint8)
+                        self.cameras[name].logs["delta_timestamp_s"] = 0.0
 
                 # images[name] = cv2.resize(img, (96, 96))
 
                 # convert the image to a 3 channel grayscale
+                # cv2.imwrite(f'/home/j/workspace/{name}_cropped.png', img)
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                # cv2.imwrite(f'/home/j/workspace/{name}_gray.png', img)
                 img = np.stack([img]*3, axis=-1)
+                # cv2.imwrite(f'/home/j/workspace/{name}_3ch.png', img)
                 ##
+
+                # print(f"in capture_observation: {name} {img.max()} {img.shape}")
 
                 images[name] = torch.from_numpy(img)
 
-                # cv2.imshow(f'{name} {img.shape}', img); cv2.waitKey(1)
+                # cv2.imshow(f'{name} {img.shape}', img); cv2.waitKey(0)
+                # write out the image
+                # cv2.imwrite(f'/home/j/workspace/{name}.png', img)
 
                 self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
                 self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
@@ -265,7 +295,7 @@ class RosRobot(Robot):
         tool_pose = msg.base.tool_pose_x, msg.base.tool_pose_y, msg.base.tool_pose_z, msg.base.tool_pose_theta_x, msg.base.tool_pose_theta_y, msg.base.tool_pose_theta_z 
         tool_v = msg.base.tool_twist_linear_x, msg.base.tool_twist_linear_y, msg.base.tool_twist_linear_z, msg.base.tool_twist_angular_x, msg.base.tool_twist_angular_y, msg.base.tool_twist_angular_z
         # return np.array([*tool_pose, *tool_v, gripper_pos], dtype=np.float32)
-        return np.array([*tool_pose, gripper_pos], dtype=np.float32)
+        return np.array([*tool_pose[:3], gripper_pos], dtype=np.float32)
 
 
     @classmethod

@@ -97,8 +97,8 @@ class DiffusionPolicy(
         """Clear observation and action queues. Should be called on `env.reset()`"""
         self._queues = {
             "observation.state": deque(maxlen=self.config.n_obs_steps),
-            "action": deque(maxlen=self.config.n_action_steps), # +1 to handle adding the zero for velocity commands
-            # "action": deque(maxlen=self.config.n_action_steps + 1), # JS +1 to handle adding the zero for velocity commands
+            # "action": deque(maxlen=self.config.n_action_steps), # +1 to handle adding the zero for velocity commands
+            "action": deque(maxlen=self.config.n_action_steps + 1), # JS +1 to handle adding the zero for velocity commands
 
         } 
         if len(self.expected_image_keys) > 0:
@@ -128,6 +128,7 @@ class DiffusionPolicy(
         "horizon" may not the best name to describe what the variable actually means, because this period is
         actually measured from the first observation which (if `n_obs_steps` > 1) happened in the past.
         """
+        # print(f"in select_action: {batch['observation.image.top'].max()} expected image keys: {self.expected_image_keys}")
         batch = self.normalize_inputs(batch)
         if len(self.expected_image_keys) > 0:
             batch = dict(batch)  # shallow copy so that adding a key doesn't modify the original
@@ -139,6 +140,7 @@ class DiffusionPolicy(
             # stack n latest observations from the queue
             batch = {k: torch.stack(list(self._queues[k]), dim=1) for k in batch if k in self._queues}
             actions = self.diffusion.generate_actions(batch)
+            # from IPython import embed; embed()
 
             # TODO(rcadene): make above methods return output dictionary?
             actions = self.unnormalize_outputs({"action": actions})["action"]
@@ -147,9 +149,9 @@ class DiffusionPolicy(
 
             ## JS
             # Add a zero velocity command at the end to deal with the delay required to generate these actions (issue a zero-velocity command before we pause)
-            # self._queues['action'].append(torch.zeros_like(self._queues["action"][-1]))
+            self._queues['action'].append(torch.zeros_like(self._queues["action"][-1]))
             # keep the manipulator value the same
-            # self._queues['action'][-1][-1] = self._queues['action'][-2][-1]
+            self._queues['action'][-1][-1] = self._queues['action'][-2][-1]
 
         action = self._queues["action"].popleft()
         return action
