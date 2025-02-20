@@ -1,13 +1,13 @@
 # @package _global_
 
-fps: 20
+fps: 10
 
 env:
   name: robosuite
-  task: Square_D0_discrete-v0
+  task: Stack
   image_size: 84
-  state_dim: 4
-  action_dim: 4
+  state_dim: 32
+  action_dim: 7
   fps: ${fps}
   episode_length: 500
   hard_reset: false

@@ -524,7 +524,7 @@ def main(
 
     data_dict = info['episodes']
 
-    print(data_dict['pusht_state'].shape)
+    # print(data_dict['pusht_state'].shape)
     # features = {}
     # if video: raise not NotImplementedError
     # else: features["observation.image"] = Image()
@@ -651,6 +651,7 @@ if __name__ == "__main__":
         nargs="*",
         help="Any key=value arguments to override config values (use dots for.nested=overrides)",
     )
+    parser.add_argument('-v', '--render', action='store_true', help='Render the environment')
     args = parser.parse_args()
 
     if args.pretrained_policy_name_or_path is None:
