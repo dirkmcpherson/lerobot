@@ -13,6 +13,7 @@ from std_msgs.msg import Float32, Int8
 from gazebo_rl.environments.basic_arm import BasicArm
 from cv_bridge import CvBridge
 import numpy as np
+from sensor_msgs.msg import Image as RosImage, Joy, JointState
 
 
 @dataclass
@@ -42,21 +43,31 @@ def on_move(x, y):
     next_action = np.array([xnorm, ynorm])
 
 import threading
-current_observation = np.zeros(13, dtype=np.float32)    
+gripper_state = np.zeros((1,), dtype=np.float32)    
 eef_lock = threading.Lock()
 eef_time = time.time()
 def eef_pose(data):
-    global current_observation, eef_time
+    global gripper_state, eef_time
 
     with eef_lock:
-        current_observation = RosRobot.basecyclicfeedback_to_state(data)
+        gripper_state = RosRobot.basecyclicfeedback_to_state(data)
         dt = time.time() - eef_time
         if dt > 5: print(f"WARN: EEF time: {dt} seconds.")
         eef_time = time.time()
 
 def sync_copy_eef():
     with eef_lock:
-        return current_observation.copy()
+        return gripper_state.copy()
+    
+joint_state = np.zeros((6,), dtype=np.float32)
+joint_lock = threading.Lock()
+def state_from_jointstate(msg):
+    with joint_lock:
+        joint_state[:] = msg.position[:6]
+
+def sync_copy_jointstate():
+    with joint_lock:
+        return joint_state.copy()
     
 current_joy = Joy()
 joy_lock = threading.Lock()
@@ -82,7 +93,7 @@ class RosRobot(Robot):
         # Overwrite config arguments using kwargs
         self.config = replace(config, **kwargs)
 
-        self.cameras = self.config.cameras
+        self.cameras = self.config.cameras if self.config.cameras else {}
         self.topics = self.config.topics
         self.is_connected = False
         self.logs = {}
@@ -99,6 +110,7 @@ class RosRobot(Robot):
         print(f"Subscribing to state topic: {self.config.state_topic}")
         rospy.Subscriber('/my_gen3_lite/base_feedback', BaseCyclic_Feedback, callback=eef_pose)
         rospy.Subscriber('/joy', Joy, callback=on_joy)
+        rospy.Subscriber('/my_gen3_lite/joint_states', JointState, callback=state_from_jointstate)
         # rospy.Subscriber('/reward', std_msgs.msg.Float32, callback=self.CB)
 
         # make a top and bottom video publisher for visualization
@@ -216,14 +228,18 @@ class RosRobot(Robot):
     def capture_observation(self, display=False):
         rospy.sleep(0.01)
         before_eef_read_t = time.perf_counter()
-        state = torch.from_numpy(sync_copy_eef())
         self.logs[f'eef_read'] = time.perf_counter() - before_eef_read_t
 
         # print(f"lerobotros::capture_observation: {state}")
+        eef_state = torch.from_numpy(sync_copy_eef())
+        joint_state = torch.from_numpy(sync_copy_jointstate())
+        state = torch.cat([joint_state, eef_state], dim=0)
 
         # Output dictionnaries
         obs_dict = {}
         obs_dict["observation.state"] = state
+        print('State: ', ','.join([f'{entry:+1.2f}' for entry in state]))
+        obs_dict['observation.environment_state'] = torch.from_numpy(np.zeros((2,), dtype=np.float32))
 
         if self.sim:
             img = torch.randn((640, 480, 3)).float()
@@ -284,7 +300,7 @@ class RosRobot(Robot):
     def send_action(self, action):
         # Command the robot to take the action
         self.env.step(action)
-        # print(f"RosRobot::send_action {[f'{entry:+1.2f}' for entry in action]}")
+        print(f"RosRobot::send_action {[f'{entry:+1.2f}' for entry in action]}")
         return action
 
     def disconnect(self):
@@ -313,7 +329,8 @@ class RosRobot(Robot):
         tool_pose = msg.base.tool_pose_x, msg.base.tool_pose_y, msg.base.tool_pose_z, msg.base.tool_pose_theta_x, msg.base.tool_pose_theta_y, msg.base.tool_pose_theta_z 
         tool_v = msg.base.tool_twist_linear_x, msg.base.tool_twist_linear_y, msg.base.tool_twist_linear_z, msg.base.tool_twist_angular_x, msg.base.tool_twist_angular_y, msg.base.tool_twist_angular_z
         # return np.array([*tool_pose, *tool_v, gripper_pos], dtype=np.float32)
-        return np.array([*tool_pose[:3], gripper_pos], dtype=np.float32)
+        # return np.array([*tool_pose[:3], gripper_pos], dtype=np.float32)
+        return np.array([gripper_pos], dtype=np.float32)
 
 
     @classmethod
@@ -374,16 +391,17 @@ class RosRobot(Robot):
                 "observation.state": {
                     "dtype": "float32",
                     # "shape": (13,),
-                    "shape": (4,),
+                    "shape": (7,),
                     "names": {
-                        "axes": ["x", "y", "z", "gripper"],
+                        "axes": ["x", "y", "z", "r", "p", "yaw", "gripper"],
                     },
                 },
                 "action": {
                     "dtype": "float32",
-                    "shape": (5,),
+                    "shape": (7,),
                     "names": {
-                        "axes": ["vx", "vy", "vz", "vyaw", "vgripper"],
+                        # "axes": ["vx", "vy", "vz", "vyaw", "vgripper"],
+                        "axes": ["x", "y", "z", "r", "p", "yaw", "gripper"],
                     },
                 },
                 "next.reward": {
@@ -396,33 +414,33 @@ class RosRobot(Robot):
                     "shape": (1,),
                     "names": None,
                 },
-                # "observation.environment_state": {
-                #     "dtype": "float32",
-                #     "shape": (16,),
+                "observation.environment_state": {
+                    "dtype": "float32",
+                    "shape": (2,),
+                    "names": [
+                        "filler",
+                    ],
+                },
+                # "observation.image.top": {
+                #     "dtype": 'image',
+                #     "shape": (3, 96, 96),
                 #     "names": [
-                #         "keypoints",
+                #         "channel",
+                #         "height",
+                #         "width",
                 #     ],
+                #     'fps': 30
                 # },
-                "observation.image.top": {
-                    "dtype": 'image',
-                    "shape": (3, 96, 96),
-                    "names": [
-                        "channel",
-                        "height",
-                        "width",
-                    ],
-                    'fps': 30
-                },
-                "observation.image.bottom": {
-                    "dtype": 'image',
-                    "shape": (3, 96, 96),
-                    "names": [
-                        "channel",
-                        "height",
-                        "width",
-                    ],
-                    'fps': 30
-                },
+                # "observation.image.bottom": {
+                #     "dtype": 'image',
+                #     "shape": (3, 96, 96),
+                #     "names": [
+                #         "channel",
+                #         "height",
+                #         "width",
+                #     ],
+                #     'fps': 30
+                # },
             }
         return cls.features
 

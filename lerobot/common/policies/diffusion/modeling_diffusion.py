@@ -151,7 +151,9 @@ class DiffusionPolicy(
             # Add a zero velocity command at the end to deal with the delay required to generate these actions (issue a zero-velocity command before we pause)
             self._queues['action'].append(torch.zeros_like(self._queues["action"][-1]))
             # keep the manipulator value the same
-            self._queues['action'][-1][-1] = self._queues['action'][-2][-1]
+            self._queues['action'][-1][-1][-1] = self._queues['action'][-2][-1][-1]
+
+            print("=======gen=========")
 
         action = self._queues["action"].popleft()
         return action
