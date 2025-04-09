@@ -17,6 +17,7 @@ import importlib
 
 import gymnasium as gym
 from omegaconf import DictConfig
+import sys
 
 
 def make_env(cfg: DictConfig, n_envs: int | None = None) -> gym.vector.VectorEnv | None:
@@ -29,30 +30,42 @@ def make_env(cfg: DictConfig, n_envs: int | None = None) -> gym.vector.VectorEnv
 
     if cfg.env.name == "real_world":
         return
-
-    package_name = f"gym_{cfg.env.name}"
-
-    try:
-        importlib.import_module(package_name)
-    except ModuleNotFoundError as e:
-        print(
-            f"{package_name} is not installed. Please install it with `pip install 'lerobot[{cfg.env.name}]'`"
+    
+    if cfg.env.name == "genesis":
+        env_cls = gym.vector.AsyncVectorEnv if cfg.eval.use_async_envs else gym.vector.SyncVectorEnv
+        sys.path.append("/home/j/workspace/genesis_sim2real")
+        from genesis_gym import GenesisGym
+        env = env_cls(
+            [
+                lambda: GenesisGym(use_truncated_in_return=True)
+                for _ in range(n_envs if n_envs is not None else cfg.eval.batch_size)
+            ]
         )
-        raise e
 
-    gym_handle = f"{package_name}/{cfg.env.task}"
-    gym_kwgs = dict(cfg.env.get("gym", {}))
+    else:
+        package_name = f"gym_{cfg.env.name}"
 
-    if cfg.env.get("episode_length"):
-        gym_kwgs["max_episode_steps"] = cfg.env.episode_length
+        try:
+            importlib.import_module(package_name)
+        except ModuleNotFoundError as e:
+            print(
+                f"{package_name} is not installed. Please install it with `pip install 'lerobot[{cfg.env.name}]'`"
+            )
+            raise e
 
-    # batched version of the env that returns an observation of shape (b, c)
-    env_cls = gym.vector.AsyncVectorEnv if cfg.eval.use_async_envs else gym.vector.SyncVectorEnv
-    env = env_cls(
-        [
-            lambda: gym.make(gym_handle, disable_env_checker=True, **gym_kwgs)
-            for _ in range(n_envs if n_envs is not None else cfg.eval.batch_size)
-        ]
-    )
+        gym_handle = f"{package_name}/{cfg.env.task}"
+        gym_kwgs = dict(cfg.env.get("gym", {}))
+
+        if cfg.env.get("episode_length"):
+            gym_kwgs["max_episode_steps"] = cfg.env.episode_length
+
+        # batched version of the env that returns an observation of shape (b, c)
+        env_cls = gym.vector.AsyncVectorEnv if cfg.eval.use_async_envs else gym.vector.SyncVectorEnv
+        env = env_cls(
+            [
+                lambda: gym.make(gym_handle, disable_env_checker=True, **gym_kwgs)
+                for _ in range(n_envs if n_envs is not None else cfg.eval.batch_size)
+            ]
+        )
 
     return env

@@ -53,7 +53,9 @@ def preprocess_observation(observations: dict[str, np.ndarray]) -> dict[str, Ten
 
         #     return_observations[imgkey] = img
 
-    imgs = {f"observation.image.top": observations["image"], f"observation.image.bottom": observations["fp_image"]}
+    # make sure only one key is used for images
+    assert len([entry for entry in observations.keys() if "image" in entry]) <= 1, f"expect only one key for images, but instead got {observations.keys()=}"
+    imgs = {f"observation.image.top": observations["image"]} #, f"observation.image.bottom": observations["fp_image"]}
 
     for imgkey, img in imgs.items():
         img = torch.from_numpy(img)
