@@ -181,7 +181,7 @@ def rollout(
 
         step += 1
         running_success_rate = (
-            einops.reduce(torch.stack(all_successes, dim=1), "b n -> b", "any").numpy().mean()
+            einops.reduce(torch.stack(all_successes, dim=1), "b n -> b", "any").cpu().numpy().mean()
         )
         progbar.set_postfix({"running_success_rate": f"{running_success_rate.item() * 100:.1f}%"})
         progbar.update()
@@ -193,15 +193,15 @@ def rollout(
 
     # Stack the sequence along the first dimension so that we have (batch, sequence, *) tensors.
     ret = {
-        "action": torch.stack(all_actions, dim=1),
-        "reward": torch.stack(all_rewards, dim=1),
-        "success": torch.stack(all_successes, dim=1),
-        "done": torch.stack(all_dones, dim=1),
+        "action": torch.stack(all_actions, dim=1).cpu(),
+        "reward": torch.stack(all_rewards, dim=1).cpu(),
+        "success": torch.stack(all_successes, dim=1).cpu(),
+        "done": torch.stack(all_dones, dim=1).cpu(),
     }
     if return_observations:
         stacked_observations = {}
         for key in all_observations[0]:
-            stacked_observations[key] = torch.stack([obs[key] for obs in all_observations], dim=1)
+            stacked_observations[key] = torch.stack([obs[key] for obs in all_observations], dim=1).cpu()
         ret["observation"] = stacked_observations
 
     return ret
@@ -297,7 +297,7 @@ def eval_policy(
 
         # Make a mask with shape (batch, n_steps) to mask out rollout data after the first done
         # (batch-element-wise). Note the `done_indices + 1` to make sure to keep the data from the done step.
-        mask = (torch.arange(n_steps) <= einops.repeat(done_indices + 1, "b -> b s", s=n_steps)).int()
+        mask = (torch.arange(n_steps).cpu() <= einops.repeat(done_indices.cpu() + 1, "b -> b s", s=n_steps)).int()
         # Extend metrics.
         batch_sum_rewards = einops.reduce((rollout_data["reward"] * mask), "b n -> b", "sum")
         sum_rewards.extend(batch_sum_rewards.tolist())
@@ -503,11 +503,11 @@ def main(
         )
     print(info["aggregated"])
 
-    ch, w, h = info['episodes']['observation.image'].shape[1:]
+    ch, w, h = info['episodes']['observation.image.top'].shape[1:]
     state_ndims = info['episodes']['observation.state'].shape[1]
     action_ndims = info['episodes']['action'].shape[1]
     features = {
-        "observation.image": {
+        "observation.image.top": {
             "dtype": "video",
             "shape": [ch, w, h],
             "names": ['height', 'width', 'channels'],

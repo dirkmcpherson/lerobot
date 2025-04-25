@@ -33,8 +33,7 @@ def make_env(cfg: DictConfig, n_envs: int | None = None) -> gym.vector.VectorEnv
     
     if cfg.env.name == "genesis":
         env_cls = gym.vector.AsyncVectorEnv if cfg.eval.use_async_envs else gym.vector.SyncVectorEnv
-        sys.path.append("/home/j/workspace/genesis_sim2real")
-        from genesis_gym import GenesisGym
+        from genesis_sim2real.envs.dev_genesis_gym import GenesisGym
         env = env_cls(
             [
                 lambda: GenesisGym(use_truncated_in_return=True)
