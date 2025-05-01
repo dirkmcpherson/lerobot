@@ -27,13 +27,14 @@ def make_env(cfg: DictConfig, n_envs: int | None = None) -> gym.vector.VectorEnv
     """
     if n_envs is not None and n_envs < 1:
         raise ValueError("`n_envs must be at least 1")
+    print(f"Creating {n_envs if n_envs is not None else cfg.eval.batch_size} environments")
 
     if cfg.env.name == "real_world":
         return
     
     if cfg.env.name == "genesis":
         env_cls = gym.vector.AsyncVectorEnv if cfg.eval.use_async_envs else gym.vector.SyncVectorEnv
-        from genesis_sim2real.envs.dev_genesis_gym import GenesisGym
+        from genesis_sim2real.envs.genesis_gym import GenesisGym
         env = env_cls(
             [
                 lambda: GenesisGym(use_truncated_in_return=True)

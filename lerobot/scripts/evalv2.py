@@ -538,7 +538,7 @@ def main(
     root = Path(str(pretrained_policy_path) + 'out')
     dataset = LeRobotDataset.create(
         repo_id,
-        fps=10, # from pusht.yaml
+        fps=30, # from pusht.yaml
         root=root,
         use_videos=True,
         features=features

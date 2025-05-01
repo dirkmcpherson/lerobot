@@ -52,6 +52,7 @@ from datetime import datetime as dt
 from pathlib import Path
 from typing import Callable
 
+import random
 import einops
 import gymnasium as gym
 import numpy as np
@@ -175,14 +176,14 @@ def rollout(
         # Keep track of which environments are done so far.
         done = terminated | truncated | done
 
-        all_actions.append(torch.from_numpy(action))
-        all_rewards.append(torch.from_numpy(reward))
-        all_dones.append(torch.from_numpy(done))
-        all_successes.append(torch.tensor(successes))
+        all_actions.append(torch.from_numpy(action).cpu())
+        all_rewards.append(torch.from_numpy(reward).cpu())
+        all_dones.append(torch.from_numpy(done).cpu())
+        all_successes.append(torch.tensor(successes).cpu())
 
         step += 1
         running_success_rate = (
-            einops.reduce(torch.stack(all_successes, dim=1), "b n -> b", "any").numpy().mean()
+            einops.reduce(torch.stack(all_successes, dim=1).cpu(), "b n -> b", "any").cpu().numpy().mean()
         )
         progbar.set_postfix({"running_success_rate": f"{running_success_rate.item() * 100:.1f}%"})
         progbar.update()
@@ -294,11 +295,11 @@ def eval_policy(
         # this won't be included).
         n_steps = rollout_data["done"].shape[1]
         # Note: this relies on a property of argmax: that it returns the first occurrence as a tiebreaker.
-        done_indices = torch.argmax(rollout_data["done"].to(int), dim=1)
+        done_indices = torch.argmax(rollout_data["done"].to(int), dim=1).cpu()
 
         # Make a mask with shape (batch, n_steps) to mask out rollout data after the first done
         # (batch-element-wise). Note the `done_indices + 1` to make sure to keep the data from the done step.
-        mask = (torch.arange(n_steps) <= einops.repeat(done_indices + 1, "b -> b s", s=n_steps)).int()
+        mask = (torch.arange(n_steps).cpu() <= einops.repeat(done_indices + 1, "b -> b s", s=n_steps)).int()
         # Extend metrics.
         batch_sum_rewards = einops.reduce((rollout_data["reward"] * mask), "b n -> b", "sum")
         sum_rewards.extend(batch_sum_rewards.tolist())
@@ -504,7 +505,8 @@ def main(
             hydra_cfg.eval.n_episodes,
             max_episodes_rendered=10,
             videos_dir=videos_dir,
-            start_seed=hydra_cfg.seed,
+            # start_seed=hydra_cfg.seed,
+            start_seed=random.randint(0, 2**32 - 1),
             return_episode_data=True
         )
     print(info["aggregated"])
@@ -547,49 +549,165 @@ def main(
     # hf_dataset = Dataset.from_dict(data_dict, features=Features(features))
     hf_dataset = Dataset.from_dict(data_dict)
 
-    episode_data_index = calculate_episode_data_index(hf_dataset)
-    lerobot_dataset = LeRobotDataset.from_preloaded(
-        repo_id=hydra_cfg.env.name,
-        hf_dataset=hf_dataset,
-        episode_data_index=episode_data_index,
-        info=extrainfo,
-        videos_dir=videos_dir,
-        )
-    
-    print("camera keys", lerobot_dataset.camera_keys)
 
-    out_dir = Path(out_dir)
-    hf_dataset = hf_dataset.with_format(None)  # to remove transforms that cant be saved
-    hf_dataset.save_to_disk(str(dataset_outdir / "train"))
-    # stats = compute_stats(lerobot_dataset, batch_size=16, num_workers=1)
-    print(f"Warning: saving out filler stats due to 'too many open fps' error. JS.")
-    stats = {
-        'observation.image': {
-            'mean': torch.Tensor([[[0.5]], [[0.5]], [[0.5]]]),  # (c,1,1)
-            'std': torch.Tensor([[[0.5]], [[0.5]], [[0.5]]])  # (c,1,1))
+    # save out the huggingface dataset
+
+
+    use_videos = True
+
+
+    # h, w, ch = data['image_top'][0].shape
+    img_shape = data_dict['observation.image.top'][0].shape
+    ch = 3
+    h, w = img_shape[:2]
+
+    state_ndims = data_dict['observation.state'][0].shape[0]
+    action_ndims = data_dict['action'][0].shape[0]
+
+    print(h, w, ch, state_ndims, action_ndims)
+
+    features = {
+        "observation.image.top": {
+            "dtype": "video" if use_videos else "image",
+            "shape": [h, w, ch],
+            "names": ['height', 'width', 'channels'],
+            "info": None},
+        "observation.state": {
+            "dtype": "float32",
+            "shape": (state_ndims,),
+            "names": [f's{i}' for i in range(state_ndims)],
         },
-        'observation.state': {
-            'min': torch.Tensor([13.456424, 32.938293]),
-            'max': torch.Tensor([496.14618, 510.9579])
+        "action": {
+            "dtype": "float32",
+            "shape": (action_ndims,),
+            "names": [f'a{i}' for i in range(action_ndims)],
         },
-        'action': {
-            'min': torch.Tensor([12.0, 25.0]),
-            'max': torch.Tensor([511.0, 511.0])
-        }
+        "next.reward": {
+            "dtype": "float32",
+            "shape": (1,),
+            "names": None,
+        },
+        "next.success": {
+            "dtype": "bool",
+            "shape": (1,),
+            "names": None,
+        },
     }
-    save_meta_data(extrainfo, stats, episode_data_index, dataset_outdir / "meta_data")
+    repo_id = f"j/out"
+    month_day_string = dt.now().strftime("%m-%d-%H-%M")
+    root = Path(f'~/workspace/lerobot/local/genesis_out_{month_day_string}').expanduser()
+    # append "out" to the end of the pretrained_policy_path
+    # root = Path(str(pretrained_policy_path) + '_out')
+    # delete the root if it exists
+    if root.exists():
+        # raise ValueError(f"Root {root} already exists. Please delete it before running this script.")
+        import shutil
+        shutil.rmtree(root)
+    dataset = LeRobotDataset.create(
+        repo_id,
+        fps=30, # from pusht.yaml
+        root=root,
+        use_videos=use_videos,
+        features=features
+    )
 
 
-    # Save info
-    outinfo = {k:v for k,v in info.items() if k != 'episodes'}
-    with open(Path(out_dir) / "eval_info.json", "w") as f:
-        json.dump(outinfo, f, indent=2)
+    # for sample in hf_dataset:
+    prev_ep_idx = 0; prev_frame_idx = 0
+    prev_frame_idx = -1; prev_timestamp = -1
+    for ep_idx, frame_idx, action, next_success, next_reward, observation_state, observation_image_top in zip(data_dict['episode_index'], data_dict['frame_index'], data_dict['action'], data_dict['next.success'], data_dict['next.reward'], data_dict['observation.state'], data_dict['observation.image.top']):
+        # print(ep_idx)
+    # for episode in data_dict:
+        # sample.pop('episode_index')
+        # sample.pop('next.done')
+        # sample.pop('pusht_state')
+        # sample['observation.image.top'] = np.array(sample['observation.image.top'])
+        # sample['observation.state'] = np.array(sample['observation.state'])
+        if prev_ep_idx != ep_idx:
+            assert ep_idx == prev_ep_idx + 1, f"Episode index {ep_idx} is not sequential. Previous episode index was {prev_ep_idx}"
+            prev_ep_idx = ep_idx
+            prev_timestamp = -1; prev_frame_idx = -1
+            dataset.save_episode("lift", encode_videos=False)
+        elif frame_idx == prev_frame_idx: # edge case where a frame repeats
+            prev_frame_idx = frame_idx
+            print(f"Duplicate frame {frame_idx} in episode {ep_idx}. {sample['next.success']=} {sample['next.reward']=}")
+            continue
+        
+        sample = {
+            "observation.image.top": observation_image_top.cpu().numpy(),
+            "observation.state": observation_state.cpu().numpy(),
+            "action": action.cpu().numpy(),
+            "next.reward": next_reward.cpu().numpy(),
+            "next.success": next_success.cpu().numpy(),
+            "timestamp": frame_idx.cpu().numpy() / 30,  # fps
+        }
+
+        if prev_timestamp != -1:
+            assert sample["timestamp"] > prev_timestamp, f"Timestamp {sample['timestamp']} is not sequential. Previous timestamp was {prev_timestamp}"
+            prev_timestamp = sample["timestamp"]
+        else:
+            prev_timestamp = sample["timestamp"]
+
+        print(f'{ep_idx=}, {frame_idx=}, timestamp={sample["timestamp"]}')
+
+        dataset.add_frame(sample)
+        prev_frame_idx = frame_idx
+    dataset.save_episode("lift", encode_videos=False)
+
+    
+    # dataset.consolidate(num_workers=0)
+    dataset.consolidate(run_compute_stats=False)
+    # stats = compute_stats(dataset.hf_dataset, batch_size=16, num_workers=0)
+    # serialized_stats = dataset.serialize_dict(stats)
+    # from lerobot.common.datasets.utils import write_json
+    # write_json(serialized_stats, dataset.root / dataset.STATS_PATH)
+
+    episode_data_index = calculate_episode_data_index(hf_dataset)
+    # lerobot_dataset = LeRobotDataset.from_preloaded(
+    #     repo_id=hydra_cfg.env.name,
+    #     hf_dataset=hf_dataset,
+    #     episode_data_index=episode_data_index,
+    #     info=extrainfo,
+    #     videos_dir=videos_dir,
+    #    )
+    
+    # print("camera keys", lerobot_dataset.camera_keys)
+
+    # out_dir = root
+    # out_dir = Path(out_dir)
+    # hf_dataset = hf_dataset.with_format(None)  # to remove transforms that cant be saved
+    # hf_dataset.save_to_disk(str(dataset_outdir / "train"))
+
+
+    # stats = compute_stats(lerobot_dataset, batch_size=16, num_workers=1)
+    # print(f"Warning: saving out filler stats due to 'too many open fps' error. JS.")
+    # stats = {
+    #     'observation.image': {
+    #         'mean': torch.Tensor([[[0.5]], [[0.5]], [[0.5]]]),  # (c,1,1)
+    #         'std': torch.Tensor([[[0.5]], [[0.5]], [[0.5]]])  # (c,1,1))
+    #     },
+    #     'observation.state': {
+    #         'min': torch.Tensor([13.456424, 32.938293]),
+    #         'max': torch.Tensor([496.14618, 510.9579])
+    #     },
+    #     'action': {
+    #         'min': torch.Tensor([12.0, 25.0]),
+    #         'max': torch.Tensor([511.0, 511.0])
+    #     }
+    # }
+    # save_meta_data(extrainfo, stats, episode_data_index, dataset_outdir / "meta_data")
+
+
+    # # Save info
+    # outinfo = {k:v for k,v in info.items() if k != 'episodes'}
+    # with open(Path(out_dir) / "eval_info.json", "w") as f:
+    #     json.dump(outinfo, f, indent=2)
 
     env.close()
 
-    logging.info("End of eval")
-    for k,v in info['episodes'].items():
-        print(f'{k} {v.shape if hasattr(v, "shape") else len(v)}')
+    # logging.info("End of eval")
+    # for k,v in info['episodes'].items():
+    #     print(f'{k} {v.shape if hasattr(v, "shape") else len(v)}')
 
 
 def get_pretrained_policy_path(pretrained_policy_name_or_path, revision=None):
