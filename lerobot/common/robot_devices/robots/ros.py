@@ -118,7 +118,6 @@ class RosRobot(Robot):
         self.pub_top = rospy.Publisher('/top_image', RosImage, queue_size=10)
         self.pub_bottom = rospy.Publisher('/bottom_image', RosImage, queue_size=10)
 
-
         self.is_connected = False
         self.env = None
         self.listener = None
@@ -126,6 +125,10 @@ class RosRobot(Robot):
 
         self.crop_dim = 700
         self.crop_left_offset = 200
+
+        self.hardcoded_object_position = rospy.get_param('object_position', 2)
+
+        self.frame_count = 0
 
         # initialize the pygame joystick
         # pygame.init()
@@ -238,8 +241,10 @@ class RosRobot(Robot):
         # Output dictionnaries
         obs_dict = {}
         obs_dict["observation.state"] = state
-        print('State: ', ','.join([f'{entry:+1.2f}' for entry in state]))
-        obs_dict['observation.environment_state'] = torch.from_numpy(np.zeros((2,), dtype=np.float32))
+        # print('State: ', ','.join([f'{entry:+1.2f}' for entry in state]))
+        if 'observation.environment_state' in RosRobot.features:
+            obs_dict['observation.environment_state'] = torch.from_numpy(np.zeros((3,), dtype=np.float32))
+            obs_dict['observation.environment_state'][self.hardcoded_object_position] = 1.0
 
         if self.sim:
             img = torch.randn((640, 480, 3)).float()
@@ -260,6 +265,7 @@ class RosRobot(Robot):
                         img = self.cameras[name].async_read()
                         img = img[:self.crop_dim, self.crop_left_offset:self.crop_dim+self.crop_left_offset]
                         img = cv2.resize(img, (96, 96))
+                        # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                         self.pub_top.publish(self.bridge.cv2_to_imgmsg(img, encoding="bgr8"))
                     else:
                         # img = self.cameras[name].async_read()
@@ -274,9 +280,11 @@ class RosRobot(Robot):
 
                 # convert the image to a 3 channel grayscale
                 # cv2.imwrite(f'/home/j/workspace/{name}_cropped.png', img)
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                # img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                # BGR to RGB
+
                 # cv2.imwrite(f'/home/j/workspace/{name}_gray.png', img)
-                img = np.stack([img]*3, axis=-1)
+                # img = np.stack([img]*3, axis=-1)
                 # cv2.imwrite(f'/home/j/workspace/{name}_3ch.png', img)
                 ##
 
@@ -286,7 +294,9 @@ class RosRobot(Robot):
 
                 # cv2.imshow(f'{name} {img.shape}', img); cv2.waitKey(0)
                 # write out the image
-                # cv2.imwrite(f'/home/j/workspace/{name}.png', img)
+                if self.frame_count % 10 == 0:
+                    cv2.imwrite(f'/home/j/workspace/{name}.png', img)
+                self.frame_count += 1
 
                 self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
                 self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
@@ -416,7 +426,7 @@ class RosRobot(Robot):
                 },
                 "observation.environment_state": {
                     "dtype": "float32",
-                    "shape": (2,),
+                    "shape": (3,),
                     "names": [
                         "filler",
                     ],
@@ -429,7 +439,7 @@ class RosRobot(Robot):
                 #         "height",
                 #         "width",
                 #     ],
-                #     'fps': 30
+                #     'fps': 10
                 # },
                 # "observation.image.bottom": {
                 #     "dtype": 'image',

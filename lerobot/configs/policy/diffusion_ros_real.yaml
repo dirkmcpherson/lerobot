@@ -41,8 +41,8 @@ training:
   drop_n_last_frames: 7  # ${policy.horizon} - ${policy.n_action_steps} - ${policy.n_obs_steps} + 1
 
 eval:
-  n_episodes: 50
-  batch_size: 50
+  n_episodes: 5
+  batch_size: 5
 
 policy:
   name: diffusion
@@ -55,9 +55,9 @@ policy:
   input_shapes:
     # TODO(rcadene, alexander-soare): add variables for height and width from the dataset/env?
     observation.image.top: [3, 96, 96] # [3, 64, 64] # 
-    observation.state: [4] #["${env.state_dim}"]
+    observation.state: ["${env.state_dim}"]
   output_shapes:
-    action: [5] # ["${env.action_dim}"]
+    action: ["${env.action_dim}"]
 
   # Normalization / Unnormalization
   input_normalization_modes:
