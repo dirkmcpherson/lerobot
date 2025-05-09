@@ -37,7 +37,7 @@ def make_env(cfg: DictConfig, n_envs: int | None = None) -> gym.vector.VectorEnv
         from genesis_sim2real.envs.genesis_gym import GenesisGym
         env = env_cls(
             [
-                lambda: GenesisGym(use_truncated_in_return=True)
+                lambda: GenesisGym(use_truncated_in_return=True, **{'vis': True})
                 for _ in range(n_envs if n_envs is not None else cfg.eval.batch_size)
             ]
         )

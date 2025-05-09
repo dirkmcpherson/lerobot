@@ -648,7 +648,7 @@ def main(
         else:
             prev_timestamp = sample["timestamp"]
 
-        print(f'{ep_idx=}, {frame_idx=}, timestamp={sample["timestamp"]}')
+        # print(f'{ep_idx=}, {frame_idx=}, timestamp={sample["timestamp"]}')
 
         dataset.add_frame(sample)
         prev_frame_idx = frame_idx

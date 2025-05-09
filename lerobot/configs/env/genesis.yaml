@@ -1,0 +1,19 @@
+# @package _global_
+
+fps: 30
+
+env:
+  name: genesis
+  task: genesis_restock-v0
+  image_size: 96
+  state_dim: 16
+  action_dim: 7
+  fps: ${fps}
+  episode_length: 1200
+  gym:
+    obs_type: pixels_state
+    render_mode: rgb_array
+    visualization_width: 384
+    visualization_height: 384
+    observation_width: 96
+    observation_height: 96

@@ -4,7 +4,7 @@
 # Note: We do not track EMA model weights as we discovered it does not improve the results. See
 #       https://github.com/huggingface/lerobot/pull/134 for more details.
 
-seed: 110106
+seed: 1436606
 dataset_repo_id: genesis/restock
 
 override_dataset_stats:
