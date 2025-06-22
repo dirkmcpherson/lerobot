@@ -468,7 +468,10 @@ def main(
         )
 
     if out_dir is None:
+        # grab the last part of the model path
+        # last_model_path = pretrained_policy_path.parts[-1]
         out_dir = f"outputs/eval/{dt.now().strftime('%Y-%m-%d/%H-%M-%S')}_{hydra_cfg.env.name}_{hydra_cfg.policy.name}"
+        # print(f"Using default output directory: {out_dir}")
 
 
     dataset_outdir = Path(str(pretrained_policy_path) + 'out') if 'lerobot' not in str(pretrained_policy_path) else Path("~/workspace/lerobot/local/pusht/hfAout").expanduser()
@@ -487,7 +490,7 @@ def main(
     hydra_cfg.env.gym.obs_type = "pixels_state"
     env = make_env(hydra_cfg)
 
-    logging.info("Making policy.")
+    print(f"Making policy from {pretrained_policy_path or hydra_cfg_path}.")
     if hydra_cfg_path is None:
         policy = make_policy(hydra_cfg=hydra_cfg, pretrained_policy_name_or_path=str(pretrained_policy_path))
     else:
@@ -593,9 +596,14 @@ def main(
             "names": None,
         },
     }
+
+    if 'dp_diffusion' in str(pretrained_policy_path):
+        model_name = str(pretrained_policy_path).split("dp_diffusion")[-1].split('/')[0]
+    else:
+        model_name = ''
     repo_id = f"j/out"
     month_day_string = dt.now().strftime("%m-%d-%H-%M")
-    root = Path(f'~/workspace/lerobot/local/genesis_out_{month_day_string}').expanduser()
+    root = Path(f'~/workspace/lerobot/local/genesis_mn{model_name}_{month_day_string}').expanduser()
     # append "out" to the end of the pretrained_policy_path
     # root = Path(str(pretrained_policy_path) + '_out')
     # delete the root if it exists

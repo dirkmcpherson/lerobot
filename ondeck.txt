@@ -1,0 +1,2 @@
+LEROBOT_HOME='' python lerobot/scripts/train.py dataset_repo_id=local/genesis_8_out_None/ policy=diffusion_genesis env=genesis hydra.run.dir=outputs/train/dp_diffusion_8out hydra.job.name=dp_diffusion_8out device=cuda wandb.enable=false training.save_freq=20000 training.eval_freq=-1
+LEROBOT_HOME='' python lerobot/scripts/train.py dataset_repo_id=local/genesis_8_out_None/ policy=diffusion_genesis env=genesis hydra.run.dir=outputs/train/dp_diffusion_8out hydra.job.name=dp_diffusion_8out device=cuda wandb.enable=false training.save_freq=20000 training.eval_freq=-1
