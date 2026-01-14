@@ -1,0 +1,19 @@
+_target_: lerobot.common.robot_devices.robots.ros.RosRobot
+
+topics:
+  observation:
+    state: 
+      topic: 'my_gen3_lite/base_feedback'
+      msg_type: 'kortex_driver/BaseCyclic_Feedback'
+  next:
+    reward: 
+      topic: 'reward'
+      msg_type: 'std_msgs/Float32'
+      # msg_type: 'std_msgs/Int8'
+    success:
+      topic: 'success'
+      msg_type: 'std_msgs/Bool'
+  action:
+    topic: 'joy'
+    msg_type: 'sensor_msgs/Joy'
+    fps: 10
