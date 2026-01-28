@@ -318,12 +318,15 @@ def record_loop(
     while timestamp < control_time_s:
         start_loop_t = time.perf_counter()
 
+        print(f"DEBUG: Inside record_loop, timestamp={timestamp:.2f}, limit={control_time_s}")
         if events["exit_early"]:
             events["exit_early"] = False
             break
 
         # Get robot observation
+        print("DEBUG: Getting observation...")
         obs = robot.get_observation()
+        print("DEBUG: Got observation.")
 
         # Applies a pipeline to the raw robot observation, default is IdentityProcessor
         obs_processed = robot_observation_processor(obs)
@@ -343,6 +346,7 @@ def record_loop(
                 task=single_task,
                 robot_type=robot.robot_type,
             )
+            print("DEBUG: Predicted action.")
 
             act_processed_policy: RobotAction = make_robot_action(action_values, dataset.features)
 
@@ -379,6 +383,7 @@ def record_loop(
         # Action can eventually be clipped using `max_relative_target`,
         # so action actually sent is saved in the dataset. action = postprocessor.process(action)
         # TODO(steven, pepijn, adil): we should use a pipeline step to clip the action, so the sent action is the action that we input to the robot.
+        print(f"DEBUG: Sending Action: {robot_action_to_send}")
         _sent_action = robot.send_action(robot_action_to_send)
 
         # Write to dataset
@@ -451,6 +456,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
         else:
             # Create empty dataset or load existing saved episodes
             sanity_check_dataset_name(cfg.dataset.repo_id, cfg.policy)
+            print(f"DEBUG: dataset_features before create: {dataset_features}")
             dataset = LeRobotDataset.create(
                 cfg.dataset.repo_id,
                 cfg.dataset.fps,
@@ -465,7 +471,9 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
             )
 
         # Load pretrained policy
+        print("DEBUG: Loading policy...")
         policy = None if cfg.policy is None else make_policy(cfg.policy, ds_meta=dataset.meta)
+        print("DEBUG: Policy loaded.")
         preprocessor = None
         postprocessor = None
         if cfg.policy is not None:
@@ -479,13 +487,18 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                 },
             )
 
+        print("DEBUG: Connecting to robot...")
         robot.connect()
+        print("DEBUG: Robot connected.")
         if teleop is not None:
             teleop.connect()
 
-        listener, events = init_keyboard_listener()
+        # listener, events = init_keyboard_listener()
+        listener = None
+        events = {"exit_early": False, "stop_recording": False, "rerecord_episode": False}
 
         with VideoEncodingManager(dataset):
+            print("DEBUG: Starting recording loop...")
             recorded_episodes = 0
             while recorded_episodes < cfg.dataset.num_episodes and not events["stop_recording"]:
                 log_say(f"Recording episode {dataset.num_episodes}", cfg.play_sounds)

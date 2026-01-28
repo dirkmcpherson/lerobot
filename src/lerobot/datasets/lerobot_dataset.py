@@ -1052,6 +1052,20 @@ class LeRobotDataset(torch.utils.data.Dataset):
             video_frames = self._query_videos(query_timestamps, ep_idx)
             item = {**video_frames, **item}
 
+            # DEBUG: Force permute if HWC detected and CHW expected
+            for key in self.meta.camera_keys:
+                if key in item and isinstance(item[key], torch.Tensor):
+                    shape = item[key].shape
+                    expected_shape = self.meta.features[key]["shape"]
+                    # If shape is (H, W, 3) and expected (3, H, W)
+                    if len(shape) == 3 and shape[2] == 3 and shape[0] != 3 and expected_shape[0] == 3:
+                         print(f"DEBUG: Permuting {key} from {shape} to CHW")
+                         item[key] = item[key].permute(2, 0, 1) # HWC -> CHW
+                    elif len(shape) == 3:
+                         # Just print for debugging
+                         # print(f"DEBUG: {key} shape {shape}, expected {expected_shape}")
+                         pass
+
         if self.image_transforms is not None:
             image_keys = self.meta.camera_keys
             for cam in image_keys:

@@ -167,6 +167,12 @@ def decode_video_frames_torchvision(
     # convert to the pytorch format which is float32 in [0,1] range (and channel first)
     closest_frames = closest_frames.type(torch.float32) / 255
 
+    # Ensure CHW format (T, C, H, W)
+    if closest_frames.ndim == 4 and closest_frames.shape[-1] == 3:
+         closest_frames = closest_frames.permute(0, 3, 1, 2)
+    elif closest_frames.ndim == 3 and closest_frames.shape[-1] == 3:
+         closest_frames = closest_frames.permute(2, 0, 1)
+
     assert len(timestamps) == len(closest_frames)
     return closest_frames
 
